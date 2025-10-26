@@ -1,0 +1,472 @@
+#include "ConsoleView.h"
+#include "../infra/exceptions/ValidacionException.h"
+#include <QDateTime>
+#include <QDebug>
+
+ConsoleView::ConsoleView(AutenticacionController& authCtrl, QuirofanoController& quirofanoCtrl,
+                         IoTController& iotCtrl)
+    : autenticacionController(authCtrl), quirofanoController(quirofanoCtrl),
+    iotController(iotCtrl), in(stdin), out(stdout) {}
+
+void ConsoleView::ejecutar() {
+    limpiarPantalla();
+
+    out << "============================================================\n";
+    out << "           QUIRIOT - Sistema de Quirofanos IoT             \n";
+    out << "              Gestion Inteligente de Quirofanos            \n";
+    out << "============================================================\n\n";
+    out.flush();
+
+    // US 1: Proceso de autenticacion
+    if (!procesarLogin()) {
+        mostrarError("No se pudo autenticar. Saliendo...");
+        return;
+    }
+
+    while (autenticacionController.estaAutenticado()) {
+        mostrarMenuPrincipal();
+    }
+
+    out << "\nHasta pronto!\n";
+    out.flush();
+}
+
+void ConsoleView::mostrarMenuPrincipal() {
+    limpiarPantalla();
+
+    out << "\n============================================================\n";
+    out << "                      MENU PRINCIPAL                        \n";
+    out << "============================================================\n";
+    out << " Usuario: " << autenticacionController.getNombreUsuarioActual() << "\n";
+    out << "============================================================\n";
+    out << " 1. Gestion de Quirofanos y Reservas                       \n";
+    out << " 2. Monitoreo IoT - Sensores [Proximamente]                \n";
+    out << " 3. Control de Actuadores [Proximamente]                   \n";
+    out << " 4. Ver Reservas del Dia                                   \n";
+    out << " 5. Cerrar Sesion                                          \n";
+    out << " 0. Salir                                                  \n";
+    out << "============================================================\n";
+    out.flush();
+
+    int opcion = leerEntero("\nSeleccione una opcion", 0, 5);
+
+    switch (opcion) {
+    case 1:
+        mostrarMenuQuirofanos();
+        break;
+    case 2:
+        mostrarMenuIoT();
+        break;
+    case 3:
+        mostrarInfo("Funcionalidad en desarrollo (US 8-9)");
+        pausa();
+        break;
+    case 4:
+        listarReservasDelDia();
+        break;
+    case 5:
+        procesarLogout();
+        break;
+    case 0:
+        procesarLogout();
+        break;
+    default:
+        mostrarError("Opcion no valida");
+        pausa();
+    }
+}
+
+void ConsoleView::mostrarMenuQuirofanos() {
+    bool volver = false;
+
+    while (!volver) {
+        limpiarPantalla();
+
+        out << "\n============================================================\n";
+        out << "              GESTION DE QUIROFANOS Y RESERVAS             \n";
+        out << "                                                           \n";
+        out << "============================================================\n";
+        out << " 1. Listar Todos los Quirofanos                            \n";
+        out << " 2. Consultar Horarios Disponibles                         \n";
+        out << " 3. Agendar Nueva Cirugia                                  \n";
+        out << " 4. Ver Reservas del Dia                                   \n";
+        out << " 5. Cancelar Reserva                                       \n";
+        out << " 6. Visualizar Estado del Quirofano [Proximamente]         \n";
+        out << " 0. Volver al Menu Principal                               \n";
+        out << "============================================================\n";
+        out.flush();
+
+        int opcion = leerEntero("\nSeleccione una opcion", 0, 6);
+
+        switch (opcion) {
+        case 1: listarQuirofanos(); break;
+        case 2: consultarHorariosDisponibles(); break;
+        case 3: agendarCirugia(); break;
+        case 4: listarReservasDelDia(); break;
+        case 5: cancelarReserva(); break;
+        case 6: visualizarEstadoQuirofano(); break;
+        case 0: volver = true; break;
+        default:
+            mostrarError("Opcion no valida");
+            pausa();
+        }
+    }
+}
+
+void ConsoleView::mostrarMenuIoT() {
+    limpiarPantalla();
+
+    out << "\n============================================================\n";
+    out << "            MONITOREO IoT - PROXIMAS FUNCIONES             \n";
+    out << "============================================================\n";
+    out << " Funcionalidades planeadas:                                \n";
+    out << " - US 3: Visualizar estado actual del quirofano            \n";
+    out << " - US 8: Activar/Desactivar sistema de limpieza            \n";
+    out << " - US 9: Control de emergencia de sistema                  \n";
+    out << " - US 10: Monitoreo en tiempo real                         \n";
+    out << " - US 11: Historial de condiciones                         \n";
+    out << "============================================================\n";
+    out << "\n[INFO] Esta funcionalidad estara disponible en la proxima iteracion\n";
+    out.flush();
+    pausa();
+}
+
+// ============================================================
+//                       AUTENTICACION
+// ============================================================
+
+bool ConsoleView::procesarLogin() {
+    mostrarSeparador();
+    out << "INICIO DE SESION\n";
+    mostrarSeparador();
+
+    QString email = leerLinea("Email");
+    QString password = leerLinea("Contrasena");
+
+    RespuestaAutenticacion respuesta = autenticacionController.login(email, password);
+
+    if (respuesta.exito) {
+        mostrarExito("Autenticacion exitosa!");
+        mostrarInfo("Bienvenido, " + respuesta.nombreUsuario);
+        pausa();
+        return true;
+    } else {
+        mostrarError(respuesta.mensaje);
+        pausa();
+        return false;
+    }
+}
+
+void ConsoleView::procesarLogout() {
+    autenticacionController.logout();
+    mostrarInfo("Sesion cerrada correctamente");
+}
+
+// ============================================================
+// US 2: AGENDAR CIRUGIA
+// ============================================================
+
+void ConsoleView::listarQuirofanos() {
+    limpiarPantalla();
+    mostrarSeparador();
+    out << "LISTA DE QUIROFANOS\n";
+    mostrarSeparador();
+
+    auto quirofanos = quirofanoController.listarQuirofanos();
+
+    if (quirofanos.isEmpty()) {
+        mostrarInfo("No hay quirofanos registrados");
+    } else {
+        out << QString("ID").leftJustified(5) << " | "
+            << QString("Nombre").leftJustified(30) << " | "
+            << QString("Estado").leftJustified(15) << " | "
+            << QString("Capacidad").leftJustified(10) << "\n";
+        mostrarSeparador();
+
+        for (Quirofano* quirofano : quirofanos) {
+            out << QString::number(quirofano->getId()).leftJustified(5) << " | "
+                << quirofano->getNombre().leftJustified(30) << " | "
+                << Quirofano::estadoToString(quirofano->getEstado()).leftJustified(15) << " | "
+                << QString::number(quirofano->getCapacidad()).leftJustified(10) << "\n";
+            delete quirofano;
+        }
+    }
+
+    pausa();
+}
+
+void ConsoleView::consultarHorariosDisponibles() {
+    limpiarPantalla();
+    mostrarSeparador();
+    out << "CONSULTAR HORARIOS DISPONIBLES\n";
+    mostrarSeparador();
+
+    int idQuirofano = leerEntero("ID del Quirofano", 1, 100);
+
+    out << "Fecha (formato: YYYY-MM-DD, ejemplo: 2025-10-22): ";
+    out.flush();
+    QString fechaStr = leerLinea();
+    QDate fecha = QDate::fromString(fechaStr, "yyyy-MM-dd");
+
+    if (!fecha.isValid()) {
+        mostrarError("Fecha invalida");
+        pausa();
+        return;
+    }
+
+    auto horarios = quirofanoController.consultarHorariosDisponibles(idQuirofano, fecha);
+
+    if (horarios.isEmpty()) {
+        mostrarInfo("No hay horarios disponibles para esta fecha");
+    } else {
+        out << "\n[OK] Horarios disponibles encontrados:\n";
+        mostrarSeparador();
+
+        for (const auto& horario : horarios) {
+            out << " Desde: " << horario.inicio.toString("hh:mm")
+            << " Hasta: " << horario.fin.toString("hh:mm")
+            << " (Duracion: " << horario.duracionMinutos << " minutos)\n";
+        }
+
+        out << "[INFO] Se requieren minimo 30 minutos entre cirugias para sanitizacion\n";
+    }
+
+    pausa();
+}
+
+void ConsoleView::agendarCirugia() {
+    limpiarPantalla();
+    mostrarSeparador();
+    out << "AGENDAR NUEVA CIRUGIA\n";
+    mostrarSeparador();
+
+    try {
+        int idQuirofano = leerEntero("ID del Quirofano", 1, 100);
+
+        out << "Fecha y hora de inicio (formato: YYYY-MM-DD HH:MM): ";
+        out.flush();
+        QString inicioStr = leerLinea();
+        QDateTime inicio = QDateTime::fromString(inicioStr, "yyyy-MM-dd hh:mm");
+
+        out << "Fecha y hora de fin (formato: YYYY-MM-DD HH:MM): ";
+        out.flush();
+        QString finStr = leerLinea();
+        QDateTime fin = QDateTime::fromString(finStr, "yyyy-MM-dd hh:mm");
+
+        QString motivo = leerLinea("Motivo de la cirugia");
+
+        if (!inicio.isValid() || !fin.isValid()) {
+            mostrarError("Fechas invalidas");
+            pausa();
+            return;
+        }
+
+        out << "\n[INFO] Validando disponibilidad...\n";
+        out.flush();
+
+        Reserva* reserva = quirofanoController.agendarCirugia(
+            autenticacionController.getUsuarioIdActual(),
+            idQuirofano,
+            inicio,
+            fin,
+            motivo
+            );
+
+        if (reserva) {
+            mostrarExito("Cirugia agendada exitosamente!");
+            mostrarInfo("ID de reserva: " + QString::number(reserva->getId()));
+            mostrarInfo("Quirofano: " + QString::number(idQuirofano));
+            mostrarInfo("Horario: " + inicio.toString("dd/MM/yyyy hh:mm") +
+                        " - " + fin.toString("hh:mm"));
+            mostrarInfo("La informacion se guardo correctamente en la base de datos");
+            delete reserva;
+        }
+
+    } catch (const ValidacionException& e) {
+        mostrarError(e.getMensaje());
+    }
+
+    pausa();
+}
+
+void ConsoleView::listarReservasDelDia() {
+    limpiarPantalla();
+    mostrarSeparador();
+    out << "RESERVAS DEL DIA\n";
+    mostrarSeparador();
+
+    out << "Fecha (YYYY-MM-DD) [Enter para hoy]: ";
+    out.flush();
+    QString fechaStr = leerLinea();
+
+    QDate fecha = fechaStr.isEmpty() ? QDate::currentDate() : QDate::fromString(fechaStr, "yyyy-MM-dd");
+
+    auto reservas = quirofanoController.listarReservasDelDia(fecha);
+
+    if (reservas.isEmpty()) {
+        mostrarInfo("No hay reservas para esta fecha");
+    } else {
+        out << "\n[INFO] Total de reservas: " << reservas.size() << "\n\n";
+
+        for (Reserva* reserva : reservas) {
+            out << "----------------------------------------------------\n";
+            out << "ID: " << reserva->getId() << "\n";
+            out << "Quirofano: " << reserva->getIdQuirofano() << "\n";
+            out << "Horario: " << reserva->getFechaInicio().toString("hh:mm")
+                << " - " << reserva->getFechaFin().toString("hh:mm") << "\n";
+            out << "Motivo: " << reserva->getMotivoCirugia() << "\n";
+            out << "Estado: " << Reserva::estadoToString(reserva->getEstado()) << "\n";
+            delete reserva;
+        }
+        out << "----------------------------------------------------\n";
+    }
+
+    pausa();
+}
+
+void ConsoleView::cancelarReserva() {
+    limpiarPantalla();
+    mostrarSeparador();
+    out << "CANCELAR RESERVA\n";
+    mostrarSeparador();
+
+    int idReserva = leerEntero("ID de la Reserva a cancelar", 1, 999999);
+
+    out << "Esta seguro de cancelar esta reserva? (s/n): ";
+    out.flush();
+    QString confirmacion = leerLinea();
+
+    if (confirmacion.toLower() == "s") {
+        if (quirofanoController.cancelarReserva(idReserva)) {
+            mostrarExito("Reserva cancelada exitosamente");
+        } else {
+            mostrarError("No se pudo cancelar la reserva");
+        }
+    } else {
+        mostrarInfo("Operacion cancelada");
+    }
+
+    pausa();
+}
+
+// ============================================================
+// ESQUELETOS PARA USER STORIES FUTURAS
+// ============================================================
+
+void ConsoleView::visualizarEstadoQuirofano() {
+    limpiarPantalla();
+    mostrarSeparador();
+    out << "VISUALIZAR ESTADO DEL QUIROFANO\n";
+    mostrarSeparador();
+    out << "\n[INFO] Funcionalidad en desarrollo\n";
+    out << "\nEsta funcion mostrara:\n";
+    out << " - Porcentaje de limpieza actual\n";
+    out << " - Calidad del aire (CO2, particulas)\n";
+    out << " - Nivel de humedad\n";
+    out << " - Advertencias si los valores estan fuera de rango\n";
+    out << " - Opcion de proceder o reprogramar cirugia\n";
+    mostrarSeparador();
+    pausa();
+}
+
+void ConsoleView::verRegistroDisponibilidad() {
+    limpiarPantalla();
+    mostrarSeparador();
+    out << "REGISTRO DE DISPONIBILIDAD\n";
+    mostrarSeparador();
+    out << "\n[INFO] Funcionalidad planeada\n";
+    out << "\nMostrara horarios disponibles con codigo de colores:\n";
+    out << " - Verde: Disponible\n";
+    out << " - Rojo: Ocupado (con detalles de la reserva)\n";
+    out << " - Amarillo: Advertencia (menos de 30 min entre cirugias)\n";
+    mostrarSeparador();
+    pausa();
+}
+
+void ConsoleView::sugerirHorarioAlternativo() {
+    mostrarInfo("User Story 6 - Funcionalidad planeada");
+    pausa();
+}
+
+void ConsoleView::activarDesactivarSistema() {
+    mostrarInfo("User Story 8 - Control de actuadores - En desarrollo");
+    pausa();
+}
+
+void ConsoleView::monitorearTiempoReal() {
+    mostrarInfo("User Story 10 - Monitoreo en tiempo real - En desarrollo");
+    pausa();
+}
+
+void ConsoleView::verHistorialCondiciones() {
+    mostrarInfo("User Story 11 - Historial de condiciones - En desarrollo");
+    pausa();
+}
+
+void ConsoleView::definirMantenimiento() {
+    mostrarInfo("User Stories de desarrolladores - Planeadas para futuras iteraciones");
+    pausa();
+}
+
+// ============================================================
+// UTILIDADES
+// ============================================================
+
+QString ConsoleView::leerLinea(const QString& prompt) {
+    if (!prompt.isEmpty()) {
+        out << prompt << ": ";
+        out.flush();
+    }
+    return in.readLine().trimmed();
+}
+
+int ConsoleView::leerEntero(const QString& prompt, int min, int max) {
+    while (true) {
+        out << prompt << " [" << min << "-" << max << "]: ";
+        out.flush();
+
+        QString input = in.readLine().trimmed();
+        bool ok;
+        int valor = input.toInt(&ok);
+
+        if (ok && valor >= min && valor <= max) {
+            return valor;
+        }
+
+        out << "[ERROR] Entrada invalida. Intente de nuevo.\n";
+    }
+}
+
+void ConsoleView::pausa() {
+    out << "\n[Presione Enter para continuar...]";
+    out.flush();
+    in.readLine();
+}
+
+void ConsoleView::limpiarPantalla() {
+#ifdef Q_OS_WIN
+    system("cls");
+#else
+    system("clear");
+#endif
+}
+
+void ConsoleView::mostrarSeparador() {
+    out << "============================================================\n";
+    out.flush();
+}
+
+void ConsoleView::mostrarError(const QString& mensaje) {
+    out << "\n[ERROR] " << mensaje << "\n";
+    out.flush();
+}
+
+void ConsoleView::mostrarExito(const QString& mensaje) {
+    out << "\n[OK] " << mensaje << "\n";
+    out.flush();
+}
+
+void ConsoleView::mostrarInfo(const QString& mensaje) {
+    out << "[INFO] " << mensaje << "\n";
+    out.flush();
+}

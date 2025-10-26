@@ -1,0 +1,28 @@
+#ifndef QUIROFANOCONTROLLER_H
+#define QUIROFANOCONTROLLER_H
+
+#include "../domain/quirofano/Quirofano.h"
+#include "../domain/quirofano/QuirofanoRepository.h"
+#include "../domain/quirofano/ReservaService.h"
+#include <QVector>
+
+class QuirofanoController {
+public:
+    QuirofanoController(QuirofanoRepository& quirofanoRepo, ReservaService& reservaServ);
+
+    QVector<Quirofano*> listarQuirofanos();
+    QVector<Quirofano*> listarDisponibles();
+    Quirofano* obtenerQuirofano(int id);
+
+    Reserva* agendarCirugia(int idUsuario, int idQuirofano, const QDateTime& inicio,
+                            const QDateTime& fin, const QString& motivo);
+    bool cancelarReserva(int idReserva);
+    QVector<Reserva*> listarReservasDelDia(const QDate& fecha);
+    QVector<HorarioDisponible> consultarHorariosDisponibles(int idQuirofano, const QDate& fecha);
+
+private:
+    QuirofanoRepository& quirofanoRepository;
+    ReservaService& reservaService;
+};
+
+#endif
