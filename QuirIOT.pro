@@ -3,7 +3,10 @@ QT -= gui
 
 CONFIG += c++17 cmdline console
 
-# Configuracion de MariaDB/MySQL para Arch Linux
+# ============================================
+# CONFIGURACION DE MySQL/MariaDB POR PLATAFORMA
+# ============================================
+
 unix:!macx {
     LIBS += -lmariadb
     INCLUDEPATH += /usr/include/mariadb
@@ -15,8 +18,9 @@ macx {
 }
 
 win32 {
-    LIBS += -L"C:/Program Files/MySQL/MySQL Server 8.0/lib" -lmysqlclient
-    INCLUDEPATH += "C:/Program Files/MySQL/MySQL Server 8.0/include"
+    # Usa la ruta sin espacios donde copiaste MySQL Connector C
+    LIBS += -L"C:/MySQL/ConnectorC/lib" -llibmysql
+    INCLUDEPATH += "C:/MySQL/ConnectorC/include"
 }
 
 DEFINES += QT_DEPRECATED_WARNINGS
@@ -82,9 +86,25 @@ OTHER_FILES += \
     .gitignore
 
 # ============================================
-# COPIAR .env AL DIRECTORIO DE BUILD
+# COPIAR .env AL DIRECTORIO DE BUILD (MULTIPLATAFORMA)
 # ============================================
-QMAKE_POST_LINK += $$quote(cp -f $$PWD/.env $$OUT_PWD/.env$$escape_expand(\\n\\t))
+
+# Define rutas de origen y destino
+ENV_SRC = $$PWD/.env
+ENV_DEST = $$OUT_PWD/.env
+
+# Solo copiar si el archivo existe
+exists($$PWD/.env) {
+    win32 {
+        ENV_SRC ~= s,/,\\,g
+        ENV_DEST ~= s,/,\\,g
+        QMAKE_POST_LINK += $$QMAKE_COPY $$quote($$ENV_SRC) $$quote($$ENV_DEST) $$escape_expand(\\n\\t)
+    }
+
+    unix {
+        QMAKE_POST_LINK += $$QMAKE_COPY $$quote($$ENV_SRC) $$quote($$ENV_DEST) $$escape_expand(\\n\\t)
+    }
+}
 
 # ============================================
 # CONFIGURACION
