@@ -4,6 +4,7 @@
 #include "Reserva.h"
 #include "QuirofanoRepository.h"
 #include "../usuario/UsuarioRepository.h"
+#include "domain/quirofano/SugerenciaAgenda.h"
 #include <QSqlDatabase>
 #include <QVector>
 
@@ -34,15 +35,30 @@ public:
 
     bool validarReserva(const DatosReserva& datos, QString& mensajeError);
     bool existeConflicto(int idQuirofano, const QDateTime& inicio, const QDateTime& fin);
+    
+    HorarioSugerido validarYSugerirHorario(
+        int idQuirofano,
+        const QDateTime& inicio,
+        const QDateTime& fin
+    );
+    
+    HorarioSugerido encontrarProximoHorarioDisponible(
+        int idQuirofano,
+        const QDateTime& inicioDeseado,
+        int duracionMinutos
+    );
+    
+    QVector<Reserva*> listarReservasPorQuirofano(int idQuirofano);
+    QVector<Reserva*> listarReservasPorQuirofanoYFecha(int idQuirofano, const QDate& fecha);
 
 private:
     QSqlDatabase& database;
     QuirofanoRepository& quirofanoRepository;
     UsuarioRepository& usuarioRepository;
+    SugerenciaAgenda sugerenciaAgenda;
 
     Reserva* mapearReserva(const class QSqlQuery& query);
     bool guardarReserva(Reserva& reserva);
-    QVector<Reserva*> listarReservasPorQuirofano(int idQuirofano);
 };
 
 #endif

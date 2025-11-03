@@ -215,6 +215,64 @@ bool ReservaService::existeConflicto(int idQuirofano, const QDateTime& inicio,
     return !quirofanoRepository.estaDisponible(idQuirofano, inicio, fin);
 }
 
+HorarioSugerido ReservaService::validarYSugerirHorario(
+    int idQuirofano,
+    const QDateTime& inicio,
+    const QDateTime& fin)
+{
+    QVector<Reserva*> reservas = listarReservasPorQuirofano(idQuirofano);
+    
+    HorarioSugerido resultado = sugerenciaAgenda.validarYSugerir(
+        idQuirofano, inicio, fin, reservas
+    );
+    
+    qDeleteAll(reservas);
+    
+    return resultado;
+}
+
+HorarioSugerido ReservaService::encontrarProximoHorarioDisponible(
+    int idQuirofano,
+    const QDateTime& inicioDeseado,
+    int duracionMinutos)
+{
+    QVector<Reserva*> reservas = listarReservasPorQuirofano(idQuirofano);
+    
+    HorarioSugerido resultado = sugerenciaAgenda.encontrarProximoDisponible(
+        idQuirofano, inicioDeseado, duracionMinutos, reservas
+    );
+    
+    qDeleteAll(reservas);
+    
+    return resultado;
+}
+
+QVector<Reserva*> ReservaService::listarReservasPorQuirofanoYFecha(int idQuirofano, const QDate& fecha) {
+    QVector<Reserva*> reservas;
+    QSqlQuery query(database);
+    
+    QDateTime inicioDia(fecha, QTime(0, 0, 0));
+    QDateTime finDia(fecha, QTime(23, 59, 59));
+    
+    query.prepare(
+        "SELECT * FROM reservan "
+        "WHERE id_quirofano = ? AND fecha_inicio BETWEEN ? AND ? "
+        "AND estado_reserva != 'CANCELADA' "
+        "ORDER BY fecha_inicio"
+    );
+    query.addBindValue(idQuirofano);
+    query.addBindValue(inicioDia);
+    query.addBindValue(finDia);
+    
+    if (query.exec()) {
+        while (query.next()) {
+            reservas.append(mapearReserva(query));
+        }
+    }
+    
+    return reservas;
+}
+
 Reserva* ReservaService::mapearReserva(const QSqlQuery& query) {
     Reserva* reserva = new Reserva(
         query.value("id_usuario").toInt(),

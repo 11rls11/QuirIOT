@@ -51,3 +51,21 @@ QVector<HorarioDisponible> QuirofanoController::consultarHorariosDisponibles(int
                                                                              const QDate& fecha) {
     return reservaService.obtenerHorariosDisponibles(idQuirofano, fecha);
 }
+
+HorarioSugerido QuirofanoController::validarYSugerirHorario(
+    int idQuirofano,
+    const QDateTime& inicio,
+    const QDateTime& fin)
+{
+    return reservaService.validarYSugerirHorario(idQuirofano, inicio, fin);
+}
+
+HorarioSugerido QuirofanoController::encontrarProximoHorarioDisponible(
+    int idQuirofano,
+    const QDateTime& inicioDeseado,
+    int duracionMinutos)
+{
+    return reservaService.encontrarProximoHorarioDisponible(
+        idQuirofano, inicioDeseado, duracionMinutos
+    );
+}

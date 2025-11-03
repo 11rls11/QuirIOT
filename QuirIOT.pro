@@ -39,6 +39,7 @@ HEADERS += \
     src/domain/quirofano/QuirofanoRepository.h \
     src/domain/quirofano/Reserva.h \
     src/domain/quirofano/ReservaService.h \
+    src/domain/quirofano/SugerenciaAgenda.h \
     src/domain/sensor/Sensor.h \
     src/domain/sensor/SensorRepository.h \
     src/domain/actuador/Actuador.h \
@@ -64,6 +65,7 @@ SOURCES += \
     src/domain/quirofano/QuirofanoRepository.cpp \
     src/domain/quirofano/Reserva.cpp \
     src/domain/quirofano/ReservaService.cpp \
+    src/domain/quirofano/SugerenciaAgenda.cpp \
     src/domain/sensor/Sensor.cpp \
     src/domain/sensor/SensorRepository.cpp \
     src/domain/actuador/Actuador.cpp \

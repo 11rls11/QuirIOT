@@ -20,6 +20,12 @@ public:
     QVector<Reserva*> listarReservasDelDia(const QDate& fecha);
     QVector<HorarioDisponible> consultarHorariosDisponibles(int idQuirofano, const QDate& fecha);
 
+    HorarioSugerido validarYSugerirHorario(int idQuirofano, const QDateTime& inicio, 
+                                           const QDateTime& fin);
+    HorarioSugerido encontrarProximoHorarioDisponible(int idQuirofano, 
+                                                       const QDateTime& inicioDeseado,
+                                                       int duracionMinutos);
+
 private:
     QuirofanoRepository& quirofanoRepository;
     ReservaService& reservaService;

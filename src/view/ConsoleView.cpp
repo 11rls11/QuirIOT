@@ -89,9 +89,10 @@ void ConsoleView::mostrarMenuQuirofanos() {
         out << " 1. Listar Todos los Quirofanos                            \n";
         out << " 2. Consultar Horarios Disponibles                         \n";
         out << " 3. Agendar Nueva Cirugia                                  \n";
-        out << " 4. Ver Reservas del Dia                                   \n";
-        out << " 5. Cancelar Reserva                                       \n";
-        out << " 6. Visualizar Estado del Quirofano [Proximamente]         \n";
+        out << " 4. Buscar Proximo Horario Disponible                      \n";
+        out << " 5. Ver Reservas del Dia                                   \n";
+        out << " 6. Cancelar Reserva                                       \n";
+        out << " 7. Validar Horario (sin agendar)                          \n";
         out << " 0. Volver al Menu Principal                               \n";
         out << "============================================================\n";
         out.flush();
@@ -101,10 +102,11 @@ void ConsoleView::mostrarMenuQuirofanos() {
         switch (opcion) {
         case 1: listarQuirofanos(); break;
         case 2: consultarHorariosDisponibles(); break;
-        case 3: agendarCirugia(); break;
-        case 4: listarReservasDelDia(); break;
-        case 5: cancelarReserva(); break;
-        case 6: visualizarEstadoQuirofano(); break;
+        case 3: agendarCirugiaConSugerencias(); break;
+        case 4: buscarProximoHorarioDisponible(); break;
+        case 5: listarReservasDelDia(); break;
+        case 6: cancelarReserva(); break;
+        case 7: mostrarSugerenciaHorario(); break;
         case 0: volver = true; break;
         default:
             mostrarError("Opcion no valida");
@@ -289,6 +291,273 @@ void ConsoleView::agendarCirugia() {
     pausa();
 }
 
+void ConsoleView::agendarCirugiaConSugerencias() {
+    limpiarPantalla();
+    mostrarSeparador();
+    out << "AGENDAR CIRUGIA CON SISTEMA DE SUGERENCIAS - US 5 Y 6\n";
+    mostrarSeparador();
+    
+    try {
+        int idQuirofano = leerEntero("ID del Quirofano", 1, 100);
+        
+        out << "\nFecha y hora de inicio (formato: YYYY-MM-DD HH:MM): ";
+        out.flush();
+        QString inicioStr = leerLinea();
+        QDateTime inicio = QDateTime::fromString(inicioStr, "yyyy-MM-dd hh:mm");
+        
+        out << "Fecha y hora de fin (formato: YYYY-MM-DD HH:MM): ";
+        out.flush();
+        QString finStr = leerLinea();
+        QDateTime fin = QDateTime::fromString(finStr, "yyyy-MM-dd hh:mm");
+        
+        QString motivo = leerLinea("Motivo de la cirugia");
+        
+        if (!inicio.isValid() || !fin.isValid()) {
+            mostrarError("Fechas invalidas");
+            pausa();
+            return;
+        }
+        
+        // Validar con sistema de sugerencias
+        out << "\n[INFO] Validando horario y generando sugerencias...\n";
+        out.flush();
+        
+        HorarioSugerido sugerencia = quirofanoController.validarYSugerirHorario(
+            idQuirofano, inicio, fin
+        );
+        
+        mostrarSeparador();
+        
+        switch (sugerencia.tipo) {
+            case TipoSugerencia::DISPONIBLE:
+                out << colorVerde("[OK] HORARIO DISPONIBLE") << "\n";
+                mostrarExito(sugerencia.mensaje);
+                out << "\nInicio: " << inicio.toString("dd/MM/yyyy hh:mm") << "\n";
+                out << "Fin:    " << fin.toString("dd/MM/yyyy hh:mm") << "\n";
+                out << "Duracion: " << (inicio.secsTo(fin) / 60) << " minutos\n";
+                
+                mostrarSeparador();
+                validarYConfirmarReserva(idQuirofano, inicio, fin, motivo);
+                break;
+                
+            case TipoSugerencia::ADVERTENCIA_INICIO:
+            case TipoSugerencia::ADVERTENCIA_FIN:
+            case TipoSugerencia::ADVERTENCIA_AMBOS: {
+                out << colorAmarillo("[ADVERTENCIA] CONFLICTO DE SANITIZACION") << "\n";
+                mostrarAdvertencia(sugerencia.mensaje);
+                
+                out << "\n--- Horario solicitado ---\n";
+                out << "Inicio: " << inicio.toString("dd/MM/yyyy hh:mm") << "\n";
+                out << "Fin:    " << fin.toString("dd/MM/yyyy hh:mm") << "\n";
+                
+                if (sugerencia.minutosAntesAnterior > 0 && sugerencia.minutosAntesAnterior < 30) {
+                    out << colorAmarillo(QString("Tiempo desde cirugia anterior: %1 minutos (minimo: 30)")
+                                        .arg(sugerencia.minutosAntesAnterior)) << "\n";
+                }
+                
+                if (sugerencia.minutosDespuesSiguiente > 0 && sugerencia.minutosDespuesSiguiente < 30) {
+                    out << colorAmarillo(QString("Tiempo hasta siguiente cirugia: %1 minutos (minimo: 30)")
+                                        .arg(sugerencia.minutosDespuesSiguiente)) << "\n";
+                }
+                
+                out << "\n" << colorVerde("--- Horario sugerido (con 30 min de sanitizacion) ---") << "\n";
+                out << "Inicio: " << sugerencia.inicioSugerido.toString("dd/MM/yyyy hh:mm") << "\n";
+                out << "Fin:    " << sugerencia.finSugerido.toString("dd/MM/yyyy hh:mm") << "\n";
+                
+                mostrarSeparador();
+                out << "\nOpciones:\n";
+                out << " 1. Agendar con horario sugerido (recomendado)\n";
+                out << " 2. Agendar con horario original (bajo tu responsabilidad)\n";
+                out << " 0. Cancelar\n";
+                
+                int opcion = leerEntero("\nSeleccione una opcion", 0, 2);
+                
+                if (opcion == 1) {
+                    validarYConfirmarReserva(idQuirofano, sugerencia.inicioSugerido, 
+                                            sugerencia.finSugerido, motivo);
+                } else if (opcion == 2) {
+                    out << colorRojo("\n[ADVERTENCIA] Estas agendando sin cumplir el tiempo de sanitizacion\n");
+                    out << "Confirmas bajo tu responsabilidad? (s/n): ";
+                    out.flush();
+                    QString confirmacion = leerLinea();
+                    
+                    if (confirmacion.toLower() == "s") {
+                        validarYConfirmarReserva(idQuirofano, inicio, fin, motivo);
+                    } else {
+                        mostrarInfo("Operacion cancelada");
+                    }
+                } else {
+                    mostrarInfo("Operacion cancelada");
+                }
+                break;
+            }
+            case TipoSugerencia::NO_DISPONIBLE: {
+                out << colorRojo("[ERROR] HORARIO NO DISPONIBLE") << "\n";
+                mostrarError(sugerencia.mensaje);
+                
+                out << "\nHorario solicitado se solapa con otra cirugia:\n";
+                out << "Inicio solicitado: " << inicio.toString("dd/MM/yyyy hh:mm") << "\n";
+                out << "Fin solicitado:    " << fin.toString("dd/MM/yyyy hh:mm") << "\n";
+                
+                out << "\n" << colorVerde("Horario alternativo disponible:") << "\n";
+                out << "Inicio: " << sugerencia.inicioSugerido.toString("dd/MM/yyyy hh:mm") << "\n";
+                out << "Fin:    " << sugerencia.finSugerido.toString("dd/MM/yyyy hh:mm") << "\n";
+                
+                mostrarSeparador();
+                out << "Deseas agendar con el horario alternativo? (s/n): ";
+                out.flush();
+                QString respuesta = leerLinea();
+                
+                if (respuesta.toLower() == "s") {
+                    validarYConfirmarReserva(idQuirofano, sugerencia.inicioSugerido,
+                                            sugerencia.finSugerido, motivo);
+                } else {
+                    mostrarInfo("Operacion cancelada");
+                }
+                break;
+            }
+        }
+    } catch (const ValidacionException& e) {
+        mostrarError(e.getMensaje());
+    }
+    
+    pausa();
+}
+
+void ConsoleView::validarYConfirmarReserva(int idQuirofano, const QDateTime& inicio,
+                                           const QDateTime& fin, const QString& motivo) {
+    try {
+        Reserva* reserva = quirofanoController.agendarCirugia(
+            autenticacionController.getUsuarioIdActual(),
+            idQuirofano,
+            inicio,
+            fin,
+            motivo
+        );
+        
+        if (reserva) {
+            out << "\n" 
+                << colorVerde("=============================================================") << "\n";
+            out << colorVerde("                CIRUGIA AGENDADA EXITOSAMENTE                ") << "\n";
+            out << colorVerde("=============================================================") << "\n";
+            mostrarExito("La reserva se guardo correctamente en la base de datos");
+            out << "\n--- Detalles de la reserva ---\n";
+            out << "ID de reserva: " << reserva->getId() << "\n";
+            out << "Quirofano:     " << idQuirofano << "\n";
+            out << "Fecha inicio:  " << inicio.toString("dd/MM/yyyy hh:mm") << "\n";
+            out << "Fecha fin:     " << fin.toString("hh:mm") << "\n";
+            out << "Duracion:      " << (inicio.secsTo(fin) / 60) << " minutos\n";
+            out << "Motivo:        " << motivo << "\n";
+            out << "Estado:        " << Reserva::estadoToString(reserva->getEstado()) << "\n";
+            out << colorVerde("============================================================") << "\n";
+            
+            delete reserva;
+        }
+        
+    } catch (const ValidacionException& e) {
+        mostrarError(QString("Error al agendar: %1").arg(e.getMensaje()));
+    }
+}
+
+void ConsoleView::mostrarSugerenciaHorario() {
+    limpiarPantalla();
+    mostrarSeparador();
+    out << "VALIDAR HORARIO (sin agendar)\n";
+    mostrarSeparador();
+    
+    int idQuirofano = leerEntero("ID del Quirofano", 1, 100);
+    
+    out << "\nFecha y hora de inicio (formato: YYYY-MM-DD HH:MM): ";
+    out.flush();
+    QString inicioStr = leerLinea();
+    QDateTime inicio = QDateTime::fromString(inicioStr, "yyyy-MM-dd hh:mm");
+    
+    out << "Fecha y hora de fin (formato: YYYY-MM-DD HH:MM): ";
+    out.flush();
+    QString finStr = leerLinea();
+    QDateTime fin = QDateTime::fromString(finStr, "yyyy-MM-dd hh:mm");
+    
+    if (!inicio.isValid() || !fin.isValid()) {
+        mostrarError("Fechas invalidas");
+        pausa();
+        return;
+    }
+    
+    HorarioSugerido sugerencia = quirofanoController.validarYSugerirHorario(
+        idQuirofano, inicio, fin
+    );
+    
+    mostrarSeparador();
+    out << "RESULTADO DE VALIDACION\n";
+    mostrarSeparador();
+    
+    switch (sugerencia.tipo) {
+        case TipoSugerencia::DISPONIBLE:
+            out << colorVerde("Estado: DISPONIBLE") << "\n";
+            out << sugerencia.mensaje << "\n";
+            break;
+            
+        case TipoSugerencia::ADVERTENCIA_INICIO:
+        case TipoSugerencia::ADVERTENCIA_FIN:
+        case TipoSugerencia::ADVERTENCIA_AMBOS:
+            out << colorAmarillo("Estado: ADVERTENCIA DE SANITIZACION") << "\n";
+            out << sugerencia.mensaje << "\n\n";
+            out << "Horario sugerido:\n";
+            out << "  Inicio: " << sugerencia.inicioSugerido.toString("dd/MM/yyyy hh:mm") << "\n";
+            out << "  Fin:    " << sugerencia.finSugerido.toString("dd/MM/yyyy hh:mm") << "\n";
+            break;
+            
+        case TipoSugerencia::NO_DISPONIBLE:
+            out << colorRojo("Estado: NO DISPONIBLE") << "\n";
+            out << sugerencia.mensaje << "\n\n";
+            out << "Horario alternativo sugerido:\n";
+            out << "  Inicio: " << sugerencia.inicioSugerido.toString("dd/MM/yyyy hh:mm") << "\n";
+            out << "  Fin:    " << sugerencia.finSugerido.toString("dd/MM/yyyy hh:mm") << "\n";
+            break;
+    }
+    
+    pausa();
+}
+
+void ConsoleView::buscarProximoHorarioDisponible() {
+    limpiarPantalla();
+    mostrarSeparador();
+    out << "BUSCAR PROXIMO HORARIO DISPONIBLE\n";
+    mostrarSeparador();
+    
+    int idQuirofano = leerEntero("ID del Quirofano", 1, 100);
+    
+    out << "\nFecha y hora deseada (formato: YYYY-MM-DD HH:MM): ";
+    out.flush();
+    QString inicioStr = leerLinea();
+    QDateTime inicioDeseado = QDateTime::fromString(inicioStr, "yyyy-MM-dd hh:mm");
+    
+    int duracion = leerEntero("Duracion estimada en minutos", 30, 480);
+    
+    if (!inicioDeseado.isValid()) {
+        mostrarError("Fecha invalida");
+        pausa();
+        return;
+    }
+    
+    out << "\n[INFO] Buscando proximo horario disponible...\n";
+    out.flush();
+    
+    HorarioSugerido sugerencia = quirofanoController.encontrarProximoHorarioDisponible(
+        idQuirofano, inicioDeseado, duracion
+    );
+    
+    mostrarSeparador();
+    out << colorVerde("PROXIMO HORARIO DISPONIBLE ENCONTRADO") << "\n";
+    mostrarSeparador();
+    out << "Inicio: " << sugerencia.inicioSugerido.toString("dd/MM/yyyy hh:mm") << "\n";
+    out << "Fin:    " << sugerencia.finSugerido.toString("dd/MM/yyyy hh:mm") << "\n";
+    out << "Duracion: " << duracion << " minutos\n";
+    out << "\n" << sugerencia.mensaje << "\n";
+    
+    pausa();
+}
+
 void ConsoleView::listarReservasDelDia() {
     limpiarPantalla();
     mostrarSeparador();
@@ -383,11 +652,6 @@ void ConsoleView::verRegistroDisponibilidad() {
     pausa();
 }
 
-void ConsoleView::sugerirHorarioAlternativo() {
-    mostrarInfo("User Story 6 - Funcionalidad planeada");
-    pausa();
-}
-
 void ConsoleView::activarDesactivarSistema() {
     mostrarInfo("User Story 8 - Control de actuadores - En desarrollo");
     pausa();
@@ -468,5 +732,26 @@ void ConsoleView::mostrarExito(const QString& mensaje) {
 
 void ConsoleView::mostrarInfo(const QString& mensaje) {
     out << "[INFO] " << mensaje << "\n";
+    out.flush();
+}
+
+QString ConsoleView::colorAmarillo(const QString& texto) {
+    return "\033[1;33m" + texto + "\033[0m";
+}
+
+QString ConsoleView::colorVerde(const QString& texto) {
+    return "\033[1;32m" + texto + "\033[0m";
+}
+
+QString ConsoleView::colorRojo(const QString& texto) {
+    return "\033[1;31m" + texto + "\033[0m";
+}
+
+QString ConsoleView::resetColor() {
+    return "\033[0m";
+}
+
+void ConsoleView::mostrarAdvertencia(const QString& mensaje) {
+    out << colorAmarillo("[ADVERTENCIA] ") << mensaje << "\n";
     out.flush();
 }

@@ -38,14 +38,20 @@ private:
     void listarReservasDelDia();
     void cancelarReserva();
 
+    void agendarCirugiaConSugerencias();
+    void mostrarSugerenciaHorario();
+    void buscarProximoHorarioDisponible();
+    void validarYConfirmarReserva(int idQuirofano, const QDateTime& inicio, 
+                                    const QDateTime& fin, const QString& motivo);
+
     void visualizarEstadoQuirofano();      // US 3
     void verRegistroDisponibilidad();      // US 4
-    void sugerirHorarioAlternativo();      // US 6
     void activarDesactivarSistema();       // US 8
     void monitorearTiempoReal();           // US 10
     void verHistorialCondiciones();        // US 11
     void definirMantenimiento();           // US de desarrolladores
 
+    // Utilidades
     QString leerLinea(const QString& prompt = "");
     int leerEntero(const QString& prompt, int min = 0, int max = 999999);
     void pausa();
@@ -54,6 +60,13 @@ private:
     void mostrarError(const QString& mensaje);
     void mostrarExito(const QString& mensaje);
     void mostrarInfo(const QString& mensaje);
+    void mostrarAdvertencia(const QString& mensaje);
+
+    // Utilidades de color (pa' la terminal)
+    QString colorAmarillo(const QString& texto);
+    QString colorVerde(const QString& texto);
+    QString colorRojo(const QString& texto);
+    QString resetColor();
 };
 
 #endif // CONSOLEVIEW_H
