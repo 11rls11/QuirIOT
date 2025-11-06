@@ -44,15 +44,19 @@ private:
     void validarYConfirmarReserva(int idQuirofano, const QDateTime& inicio, 
                                     const QDateTime& fin, const QString& motivo);
 
+    void activarDesactivarSistemaLimpieza();
+    void consultarEstadoSistemaLimpieza();
+    void verHistorialSistemaLimpieza();
+
     void visualizarEstadoQuirofano();      // US 3
     void verRegistroDisponibilidad();      // US 4
-    void activarDesactivarSistema();       // US 8
     void monitorearTiempoReal();           // US 10
     void verHistorialCondiciones();        // US 11
     void definirMantenimiento();           // US de desarrolladores
 
     // Utilidades
     QString leerLinea(const QString& prompt = "");
+    QString leerLineaSegura(const QString& prompt);
     int leerEntero(const QString& prompt, int min = 0, int max = 999999);
     void pausa();
     void limpiarPantalla();
@@ -66,6 +70,8 @@ private:
     QString colorAmarillo(const QString& texto);
     QString colorVerde(const QString& texto);
     QString colorRojo(const QString& texto);
+    QString colorCyan(const QString& texto);
+    QString colorMagenta(const QString& texto);
     QString resetColor();
 };
 

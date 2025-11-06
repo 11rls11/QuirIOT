@@ -1,6 +1,8 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QFile>
+#include <QDir>
+#include <QTimeZone>
 #include "src/config/DatabaseConfig.h"
 #include "src/domain/usuario/UsuarioRepository.h"
 #include "src/domain/usuario/AutenticacionService.h"
@@ -21,6 +23,16 @@ int main(int argc, char *argv[])
     QCoreApplication::setApplicationName("QuirIOT");
     QCoreApplication::setApplicationVersion("1.0.0 - MVP");
     QCoreApplication::setOrganizationName("TecDeMonterrey");
+
+    QTimeZone mexicoTimezone("America/Mexico_City");
+    if (mexicoTimezone.isValid()) {
+        qInfo() << "[OK] Zona horaria detectada: America/Mexico_City (UTC-6)";
+        qInfo() << "[INFO] Offset actual:" << mexicoTimezone.offsetFromUtc(QDateTime::currentDateTime()) / 3600 << "horas desde UTC";
+    } else {
+        qWarning() << "[WARN] Usando zona horaria del sistema";
+    }
+
+    qputenv("TZ", "America/Mexico_City");
 
     QCoreApplication::addLibraryPath("/usr/lib/qt6/plugins");
     qDebug() << "[DEBUG] Plugin paths:" << QCoreApplication::libraryPaths();
@@ -79,7 +91,7 @@ int main(int argc, char *argv[])
         qInfo() << "[INFO] Inicializando controladores...";
         AutenticacionController authController(authService);
         QuirofanoController quirofanoController(quirofanoRepo, reservaService);
-        IoTController iotController(sensorRepo, actuadorRepo);  // Esqueleto
+        IoTController iotController(sensorRepo, actuadorRepo, dbConfig.getDatabase());  // Esqueleto
 
         qInfo() << "\n[OK] Sistema inicializado correctamente";
 

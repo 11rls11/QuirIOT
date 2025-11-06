@@ -1,5 +1,6 @@
 #include "ConsoleView.h"
 #include "../infra/exceptions/ValidacionException.h"
+#include "qsqlquery.h"
 #include <QDateTime>
 #include <QDebug>
 
@@ -97,7 +98,7 @@ void ConsoleView::mostrarMenuQuirofanos() {
         out << "============================================================\n";
         out.flush();
 
-        int opcion = leerEntero("\nSeleccione una opcion", 0, 6);
+        int opcion = leerEntero("\nSeleccione una opcion", 0, 7);
 
         switch (opcion) {
         case 1: listarQuirofanos(); break;
@@ -116,20 +117,238 @@ void ConsoleView::mostrarMenuQuirofanos() {
 }
 
 void ConsoleView::mostrarMenuIoT() {
-    limpiarPantalla();
+    bool volver = false;
 
-    out << "\n============================================================\n";
-    out << "            MONITOREO IoT - PROXIMAS FUNCIONES             \n";
-    out << "============================================================\n";
-    out << " Funcionalidades planeadas:                                \n";
-    out << " - US 3: Visualizar estado actual del quirofano            \n";
-    out << " - US 8: Activar/Desactivar sistema de limpieza            \n";
-    out << " - US 9: Control de emergencia de sistema                  \n";
-    out << " - US 10: Monitoreo en tiempo real                         \n";
-    out << " - US 11: Historial de condiciones                         \n";
-    out << "============================================================\n";
-    out << "\n[INFO] Esta funcionalidad estara disponible en la proxima iteracion\n";
-    out.flush();
+    while (!volver) {
+        limpiarPantalla();
+
+        out << "\n============================================================\n";
+        out << "          CONTROL IoT - SISTEMA DE LIMPIEZA (US 8)        \n";
+        out << "============================================================\n";
+        out << " 1. Activar/Desactivar Sistema de Limpieza                 \n";
+        out << " 2. Consultar Estado del Sistema                           \n";
+        out << " 3. Ver Historial de Acciones del Sistema                  \n";
+        out << " 0. Volver al Menu Principal                               \n";
+        out << "============================================================\n";
+        out.flush();
+
+        int opcion = leerEntero("\nSeleccione una opcion", 0, 3);
+
+        switch (opcion) {
+        case 1: activarDesactivarSistemaLimpieza(); break;
+        case 2: consultarEstadoSistemaLimpieza(); break;
+        case 3: verHistorialSistemaLimpieza(); break;
+        case 0: volver = true; break;
+        default:
+            mostrarError("Opcion no valida");
+            pausa();
+        }
+    }
+}
+
+void ConsoleView::activarDesactivarSistemaLimpieza() {
+    limpiarPantalla();
+    mostrarSeparador();
+    out << colorCyan("ACTIVAR/DESACTIVAR SISTEMA DE LIMPIEZA") << "\n";
+    mostrarSeparador();
+
+    int idQuirofano = leerEntero("ID del Quirofano", 1, 100);
+
+    // Consultar estado actual
+    bool estadoActual = iotController.consultarEstadoSistemaLimpieza(idQuirofano);
+
+    out << "\n[INFO] Estado actual del sistema en Quirofano " << idQuirofano << ": ";
+    if (estadoActual) {
+        out << colorVerde("ACTIVO") << "\n";
+    } else {
+        out << colorRojo("DESACTIVADO") << "\n";
+    }
+
+    mostrarSeparador();
+    out << "\nQue desea hacer?\n";
+    out << " 1. Activar sistema de limpieza\n";
+    out << " 2. Desactivar sistema de limpieza\n";
+    out << " 0. Cancelar\n";
+
+    int opcion = leerEntero("\nSeleccione una opcion", 0, 2);
+
+    if (opcion == 0) {
+        mostrarInfo("Operacion cancelada");
+        pausa();
+        return;
+    }
+
+    try {
+        ResultadoOperacionSistema resultado;
+
+        if (opcion == 1) {
+            // ACTIVAR SISTEMA
+            out << "\n" << colorVerde("=== ACTIVAR SISTEMA DE LIMPIEZA ===") << "\n";
+            out << "[INFO] Para activar el sistema se requiere su contrasena\n\n";
+
+            QString password = leerLineaSegura("Ingrese su contrasena");
+
+            resultado = iotController.activarSistemaLimpieza(
+                idQuirofano,
+                autenticacionController.getUsuarioIdActual(),
+                password
+                );
+
+        } else if (opcion == 2) {
+            // DESACTIVAR SISTEMA (requiere confirmación)
+            out << "\n" << colorRojo("=== DESACTIVAR SISTEMA DE LIMPIEZA ===") << "\n";
+            out << colorAmarillo("[ADVERTENCIA] Esta a punto de desactivar el sistema de limpieza") << "\n";
+            out << colorAmarillo("[ADVERTENCIA] Esto detendra todos los protocolos automaticos") << "\n\n";
+
+            out << "Acepta la responsabilidad de desactivar el sistema? (s/n): ";
+            out.flush();
+            QString confirmacion = leerLinea();
+
+            if (confirmacion.toLower() != "s") {
+                mostrarInfo("Operacion cancelada");
+                pausa();
+                return;
+            }
+
+            QString razon = leerLinea("\nRazon para desactivar (opcional)");
+            QString password = leerLineaSegura("Ingrese su contrasena para confirmar");
+
+            resultado = iotController.desactivarSistemaLimpieza(
+                idQuirofano,
+                autenticacionController.getUsuarioIdActual(),
+                password,
+                razon
+                );
+        }
+
+        // Mostrar resultado
+        mostrarSeparador();
+        if (resultado.exito) {
+            out << "\n" << colorVerde("============================================================") << "\n";
+            out << colorVerde("              OPERACION EXITOSA") << "\n";
+            out << colorVerde("============================================================") << "\n";
+            mostrarExito(resultado.mensaje);
+            out << "\nQuirofano:       " << idQuirofano << "\n";
+            out << "Usuario:         " << resultado.nombreUsuario << "\n";
+            out << "Accion:          " << resultado.accion << "\n";
+            out << "Fecha/Hora:      " << QDateTime::currentDateTime().toString("dd/MM/yyyy hh:mm:ss") << "\n";
+            out << "\n[INFO] La accion ha sido registrada en el historial del sistema\n";
+            out << colorVerde("============================================================") << "\n";
+        } else {
+            mostrarError(resultado.mensaje);
+        }
+
+    } catch (const std::exception& e) {
+        mostrarError(QString("Error: %1").arg(e.what()));
+    }
+
+    pausa();
+}
+
+void ConsoleView::consultarEstadoSistemaLimpieza() {
+    limpiarPantalla();
+    mostrarSeparador();
+    out << "CONSULTAR ESTADO DEL SISTEMA DE LIMPIEZA\n";
+    mostrarSeparador();
+
+    int idQuirofano = leerEntero("ID del Quirofano", 1, 100);
+
+    bool estadoActivo = iotController.consultarEstadoSistemaLimpieza(idQuirofano);
+
+    mostrarSeparador();
+    out << "\n[INFO] Quirofano: " << idQuirofano << "\n";
+    out << "[INFO] Sistema de Limpieza: ";
+
+    if (estadoActivo) {
+        out << colorVerde("ACTIVO") << "\n";
+        out << "\n[OK] El sistema de limpieza esta funcionando normalmente\n";
+        out << "[OK] Los protocolos automaticos estan activos\n";
+    } else {
+        out << colorRojo("DESACTIVADO") << "\n";
+        out << "\n" << colorAmarillo("[ADVERTENCIA] El sistema de limpieza esta desactivado") << "\n";
+        out << colorAmarillo("[ADVERTENCIA] Los protocolos automaticos estan inactivos") << "\n";
+        out << "\n[INFO] Para activarlo, use la opcion 1 del menu IoT\n";
+    }
+
+    pausa();
+}
+
+void ConsoleView::verHistorialSistemaLimpieza() {
+    limpiarPantalla();
+    mostrarSeparador();
+    out << "HISTORIAL DEL SISTEMA DE LIMPIEZA\n";
+    mostrarSeparador();
+
+    int idQuirofano = leerEntero("ID del Quirofano (0 para todos)", 0, 100);
+
+    // Consultar historial desde la base de datos
+    QSqlDatabase& db = iotController.obtenerDatabase();
+    QSqlQuery query(db);
+
+    if (idQuirofano == 0) {
+        query.prepare(
+            "SELECT h.id_historial, h.id_quirofano, u.nombre, h.accion, "
+            "h.fecha_accion, h.razon "
+            "FROM historial_sistema_limpieza h "
+            "JOIN usuarios u ON h.id_usuario = u.id_usuario "
+            "ORDER BY h.fecha_accion DESC "
+            "LIMIT 20"
+            );
+    } else {
+        query.prepare(
+            "SELECT h.id_historial, h.id_quirofano, u.nombre, h.accion, "
+            "h.fecha_accion, h.razon "
+            "FROM historial_sistema_limpieza h "
+            "JOIN usuarios u ON h.id_usuario = u.id_usuario "
+            "WHERE h.id_quirofano = ? "
+            "ORDER BY h.fecha_accion DESC "
+            "LIMIT 20"
+            );
+        query.addBindValue(idQuirofano);
+    }
+
+    if (!query.exec()) {
+        mostrarError("No se pudo consultar el historial");
+        pausa();
+        return;
+    }
+
+    int count = 0;
+    mostrarSeparador();
+    out << "\n[HISTORIAL DE ACCIONES DEL SISTEMA]\n\n";
+
+    while (query.next()) {
+        count++;
+        int idReg = query.value(0).toInt();
+        int quirofano = query.value(1).toInt();
+        QString usuario = query.value(2).toString();
+        QString accion = query.value(3).toString();
+        QDateTime fecha = query.value(4).toDateTime();
+        QString razon = query.value(5).toString();
+
+        out << "--- Registro #" << idReg << " ---\n";
+        out << "Quirofano:  " << quirofano << "\n";
+        out << "Usuario:    " << usuario << "\n";
+
+        if (accion == "ACTIVAR") {
+            out << "Accion:     " << colorVerde(accion) << "\n";
+        } else {
+            out << "Accion:     " << colorRojo(accion) << "\n";
+        }
+
+        out << "Fecha:      " << fecha.toString("dd/MM/yyyy hh:mm:ss") << "\n";
+        if (!razon.isEmpty()) {
+            out << "Razon:      " << razon << "\n";
+        }
+        out << "\n";
+    }
+
+    if (count == 0) {
+        mostrarInfo("No hay registros en el historial");
+    } else {
+        out << "[INFO] Total de registros mostrados: " << count << "\n";
+    }
+
     pausa();
 }
 
@@ -164,9 +383,9 @@ void ConsoleView::procesarLogout() {
     mostrarInfo("Sesion cerrada correctamente");
 }
 
-// ============================================================
-// US 2: AGENDAR CIRUGIA
-// ============================================================
+// =============================================================
+//                       AGENDAR CIRUGIA
+// =============================================================
 
 void ConsoleView::listarQuirofanos() {
     limpiarPantalla();
@@ -294,7 +513,7 @@ void ConsoleView::agendarCirugia() {
 void ConsoleView::agendarCirugiaConSugerencias() {
     limpiarPantalla();
     mostrarSeparador();
-    out << "AGENDAR CIRUGIA CON SISTEMA DE SUGERENCIAS - US 5 Y 6\n";
+    out << "AGENDAR CIRUGIA\n";
     mostrarSeparador();
     
     try {
@@ -652,11 +871,6 @@ void ConsoleView::verRegistroDisponibilidad() {
     pausa();
 }
 
-void ConsoleView::activarDesactivarSistema() {
-    mostrarInfo("User Story 8 - Control de actuadores - En desarrollo");
-    pausa();
-}
-
 void ConsoleView::monitorearTiempoReal() {
     mostrarInfo("User Story 10 - Monitoreo en tiempo real - En desarrollo");
     pausa();
@@ -745,6 +959,27 @@ QString ConsoleView::colorVerde(const QString& texto) {
 
 QString ConsoleView::colorRojo(const QString& texto) {
     return "\033[1;31m" + texto + "\033[0m";
+}
+
+QString ConsoleView::leerLineaSegura(const QString& prompt) {
+    if (!prompt.isEmpty()) {
+        out << prompt << ": ";
+        out.flush();
+    }
+
+    // En terminal real, esto ocultaría el input
+    // Para la versión básica, simplemente lee normalmente
+    QString password = in.readLine().trimmed();
+
+    return password;
+}
+
+QString ConsoleView::colorCyan(const QString& texto) {
+    return "\033[1;36m" + texto + "\033[0m";
+}
+
+QString ConsoleView::colorMagenta(const QString& texto) {
+    return "\033[1;35m" + texto + "\033[0m";
 }
 
 QString ConsoleView::resetColor() {

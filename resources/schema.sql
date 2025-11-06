@@ -6,10 +6,6 @@ DROP DATABASE IF EXISTS quiriot_db;
 CREATE DATABASE quiriot_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE quiriot_db;
 
--- ============================================
--- US 1: AUTENTICACION
--- ============================================
-
 -- Tabla de usuarios
 CREATE TABLE usuarios (
     id_usuario INT(2) PRIMARY KEY AUTO_INCREMENT,
@@ -28,10 +24,6 @@ CREATE TABLE rol_usuario (
     FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
     INDEX idx_usuario_rol (id_usuario)
 ) ENGINE=InnoDB COMMENT='Roles de usuarios';
-
--- ============================================
--- US 2: QUIROFANOS Y RESERVAS
--- ============================================
 
 -- Tabla de quirofanos
 CREATE TABLE quirofanos (
@@ -61,10 +53,6 @@ CREATE TABLE reservan (
     UNIQUE KEY unique_reserva_quirofano (id_quirofano, fecha_inicio, fecha_fin)
 ) ENGINE=InnoDB COMMENT='Reservas de cirugias';
 
--- ============================================
--- DATOS DE PRUEBA
--- ============================================
-
 -- Insertar usuarios de prueba
 -- Contrasena: 123456 (hash BCrypt)
 INSERT INTO usuarios (email, contrasena, nombre) VALUES
@@ -92,10 +80,6 @@ INSERT INTO reservan (id_usuario, id_quirofano, fecha_inicio, fecha_fin, motivo_
 (2, 1, '2025-10-22 11:00:00', '2025-10-22 13:00:00', 'Colecistectomia', 'PROGRAMADA'),
 (3, 2, '2025-10-22 09:00:00', '2025-10-22 11:30:00', 'Fractura de femur', 'PROGRAMADA');
 
--- ============================================
--- VERIFICACION
--- ============================================
-
 SELECT 'Base de datos creada exitosamente' AS mensaje;
 SELECT COUNT(*) AS total_usuarios FROM usuarios;
 SELECT COUNT(*) AS total_quirofanos FROM quirofanos;
@@ -120,3 +104,27 @@ FROM reservan r
 INNER JOIN usuarios u ON r.id_usuario = u.id_usuario
 INNER JOIN quirofanos q ON r.id_quirofano = q.id_quirofano
 ORDER BY r.fecha_inicio;
+
+-- Tabla para registrar activaciones/desactivaciones del sistema
+CREATE TABLE historial_sistema_limpieza (
+    id_historial INT AUTO_INCREMENT PRIMARY KEY,
+    id_quirofano INT(2) NOT NULL,
+    id_usuario INT(2) NOT NULL,
+    accion ENUM('ACTIVAR','DESACTIVAR') NOT NULL,
+    fecha_accion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    razon VARCHAR(255),
+    FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
+    FOREIGN KEY (id_quirofano) REFERENCES quirofanos(id_quirofano) ON DELETE CASCADE,
+    INDEX idx_quirofano_fecha (id_quirofano, fecha_accion)
+) ENGINE=InnoDB COMMENT='Historial de activacion/desactivacion del sistema de limpieza';
+
+-- Agregar columna de estado del sistema de limpieza a quirofanos
+ALTER TABLE quirofanos
+ADD COLUMN sistema_limpieza_activo BOOLEAN DEFAULT TRUE
+COMMENT 'Indica si el sistema de limpieza automatico esta activo';
+
+-- Insertar datos de ejemplo
+INSERT INTO historial_sistema_limpieza (id_quirofano, id_usuario, accion, razon) VALUES
+(1, 1, 'ACTIVAR', 'Inicio de operaciones'),
+(2, 1, 'ACTIVAR', 'Inicio de operaciones'),
+(3, 1, 'ACTIVAR', 'Inicio de operaciones');

@@ -44,8 +44,6 @@ public:
     );
     
     static const int MINUTOS_SANITIZACION = 30;
-    static const int HORA_INICIO_JORNADA = 7;
-    static const int HORA_FIN_JORNADA = 19;
     
 private:
     bool tieneConflictoSanitizacion(

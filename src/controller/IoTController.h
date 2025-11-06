@@ -1,41 +1,52 @@
 #ifndef IOTCONTROLLER_H
 #define IOTCONTROLLER_H
 
-#include "../domain/sensor/Sensor.h"
 #include "../domain/sensor/SensorRepository.h"
-#include "../domain/actuador/Actuador.h"
 #include "../domain/actuador/ActuadorRepository.h"
-#include <QVector>
+#include <QSqlDatabase>
+#include <QString>
 
-// Esqueleto preparado para User Stories 3, 8, 9, 10, 11
+struct ResultadoOperacionSistema {
+    bool exito;
+    QString mensaje;
+    QString nombreUsuario;
+    QString accion;
+};
+
 class IoTController {
 public:
-    IoTController(SensorRepository& sensorRepo, ActuadorRepository& actuadorRepo);
+    IoTController(SensorRepository& sensorRepo, ActuadorRepository& actuadorRepo,
+                  QSqlDatabase& db);
 
-    // US 3: Visualizar estado del quirofano
-    // TODO: Implementar en proxima iteracion
+    ResultadoOperacionSistema activarSistemaLimpieza(
+        int idQuirofano,
+        int idUsuario,
+        const QString& password
+        );
+
+    ResultadoOperacionSistema desactivarSistemaLimpieza(
+        int idQuirofano,
+        int idUsuario,
+        const QString& password,
+        const QString& razon = ""
+        );
+
+    QSqlDatabase& obtenerDatabase() { return database; }
+
+    bool consultarEstadoSistemaLimpieza(int idQuirofano);
+
     bool obtenerEstadoQuirofano(int idQuirofano);
-
-    // US 8: Activar/Desactivar sistema
-    // TODO: Implementar control de actuadores
-    bool activarSistemaLimpieza(int idQuirofano, int idUsuario, const QString& password);
-    bool desactivarSistemaLimpieza(int idQuirofano, int idUsuario, const QString& password);
-
-    // US 9: Boton fisico de emergencia
-    // TODO: Implementar integracion con Raspberry Pi
     bool registrarAccionEmergencia(int idQuirofano);
-
-    // US 10: Monitoreo en tiempo real
-    // TODO: Implementar lectura de sensores
-    QVector<Sensor*> listarSensoresActivos(int idQuirofano);
-
-    // US 11: Historial de condiciones
-    // TODO: Implementar consulta de mediciones historicas
-    bool obtenerHistorialCondiciones(int idQuirofano, const QDateTime& inicio, const QDateTime& fin);
 
 private:
     SensorRepository& sensorRepository;
     ActuadorRepository& actuadorRepository;
+    QSqlDatabase& database;
+
+    bool validarPassword(int idUsuario, const QString& password);
+    bool registrarAccionSistema(int idQuirofano, int idUsuario,
+                                const QString& accion, const QString& razon);
+    bool actualizarEstadoSistema(int idQuirofano, bool activo);
 };
 
 #endif // IOTCONTROLLER_H
