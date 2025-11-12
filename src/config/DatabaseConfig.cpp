@@ -90,6 +90,8 @@ bool DatabaseConfig::conectarLocal() {
 
     qInfo() << "[INFO] Conectando a:" << username << "@" << host << ":" << port << "/" << database;
 
+    db.setConnectOptions("MYSQL_OPT_SSL_MODE=SSL_MODE_DISABLED");
+
     if (!db.open()) {
         qCritical() << "[ERROR] Error al conectar con MySQL/MariaDB:";
         qCritical() << "        " << db.lastError().text();
