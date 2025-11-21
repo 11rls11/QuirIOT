@@ -49,7 +49,8 @@ HEADERS += \
     src/controller/IoTController.h \
     src/infra/security/SecurityManager.h \
     src/infra/exceptions/ValidacionException.h \
-    src/view/ConsoleView.h
+    src/view/ConsoleView.h \
+    src/controller/DemoController.h
 
 # ============================================
 # SOURCES
@@ -75,6 +76,7 @@ SOURCES += \
     src/controller/IoTController.cpp \
     src/infra/security/SecurityManager.cpp \
     src/infra/exceptions/ValidacionException.cpp \
+    src/controller/DemoController.cpp \
     src/view/ConsoleView.cpp
 
 # ============================================
