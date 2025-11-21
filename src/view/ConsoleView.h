@@ -32,13 +32,14 @@ private:
     void procesarLogout();
 
     // US 2: Agendar cirugia
-    void listarQuirofanos();
+    void verInformacionQuirofano();
     void consultarHorariosDisponibles();
     void agendarCirugia();
     void listarReservasDelDia();
     void cancelarReserva();
 
     void agendarCirugiaConSugerencias();
+    void verReservasFuturas();
     void mostrarSugerenciaHorario();
     void buscarProximoHorarioDisponible();
     void validarYConfirmarReserva(int idQuirofano, const QDateTime& inicio, 

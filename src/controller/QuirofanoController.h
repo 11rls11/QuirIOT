@@ -18,6 +18,7 @@ public:
                             const QDateTime& fin, const QString& motivo);
     bool cancelarReserva(int idReserva);
     QVector<Reserva*> listarReservasDelDia(const QDate& fecha);
+    QVector<Reserva*> listarReservasPorQuirofano(int idQuirofano);
     QVector<HorarioDisponible> consultarHorariosDisponibles(int idQuirofano, const QDate& fecha);
 
     HorarioSugerido validarYSugerirHorario(int idQuirofano, const QDateTime& inicio, 

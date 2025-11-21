@@ -47,6 +47,10 @@ QVector<Reserva*> QuirofanoController::listarReservasDelDia(const QDate& fecha) 
     return reservaService.listarReservasDelDia(fecha);
 }
 
+QVector<Reserva*> QuirofanoController::listarReservasPorQuirofano(int idQuirofano) {
+    return reservaService.listarReservasPorQuirofano(idQuirofano);
+}
+
 QVector<HorarioDisponible> QuirofanoController::consultarHorariosDisponibles(int idQuirofano,
                                                                              const QDate& fecha) {
     return reservaService.obtenerHorariosDisponibles(idQuirofano, fecha);
