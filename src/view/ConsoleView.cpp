@@ -42,21 +42,24 @@ void ConsoleView::mostrarMenuPrincipal() {
         mostrarSeparador();
         out << " 1. Gestion de Quirofano\n";
         out << " 2. Control IoT\n";
-        out << " 3. Cerrar sesion\n";
+        out << " 3. MODO DEMO - Capacitacion (US 3)\n";  
+        out << " 4. Cerrar sesion\n";                    
         mostrarSeparador();
 
-        opcion = leerEntero("Seleccione una opcion", 1, 3);
+        opcion = leerEntero("Seleccione una opcion", 1, 4);  
 
         switch (opcion) {
         case 1: mostrarMenuQuirofanos(); break;
         case 2: mostrarMenuIoT(); break;
-        case 3:
+        case 3: iniciarModoDemo(); break;               
+        case 4:                                         
             procesarLogout();
-            return; // Volver al login
+            return;
         default: mostrarError("Opcion invalida");
         }
     } while (true);
 }
+
 
 void ConsoleView::mostrarMenuQuirofanos() {
     int opcion = 0;
@@ -697,9 +700,9 @@ void ConsoleView::validarYConfirmarReserva(int idQuirofano, const QDateTime& ini
             fin,
             motivo
         );
-        
+
         if (reserva) {
-            out << "\n" 
+            out << "\n"
                 << colorVerde("=============================================================") << "\n";
             out << colorVerde("                CIRUGIA AGENDADA EXITOSAMENTE                ") << "\n";
             out << colorVerde("=============================================================") << "\n";
@@ -713,10 +716,10 @@ void ConsoleView::validarYConfirmarReserva(int idQuirofano, const QDateTime& ini
             out << "Motivo:        " << motivo << "\n";
             out << "Estado:        " << Reserva::estadoToString(reserva->getEstado()) << "\n";
             out << colorVerde("============================================================") << "\n";
-            
+
             delete reserva;
         }
-        
+
     } catch (const ValidacionException& e) {
         mostrarError(QString("Error al agendar: %1").arg(e.getMensaje()));
     }
@@ -1130,4 +1133,640 @@ QString ConsoleView::resetColor() {
 void ConsoleView::mostrarAdvertencia(const QString& mensaje) {
     out << colorAmarillo("[ADVERTENCIA] ") << mensaje << "\n";
     out.flush();
+}
+// ============================================================
+//                    MODO DEMO (US 3) - VERSIÓN ADAPTADA
+// ============================================================
+
+void ConsoleView::iniciarModoDemo() {
+    limpiarPantalla();
+    mostrarSeparador();
+    out << colorCyan("========================================================") << "\n";
+    out << colorCyan("           MODO DEMO - CAPACITACION INTERACTIVA        ") << "\n";
+    out << colorCyan("========================================================") << "\n";
+    out << "\n";
+    out << colorVerde("[BIENVENIDO AL MODO DEMO]") << "\n";
+    out << "\nEste modo te permite familiarizarte con el sistema\n";
+    out << "mediante pruebas INTERACTIVAS que evaluan tu comprension.\n";
+    out << "\n";
+    out << colorAmarillo("IMPORTANTE:") << " Las pruebas requieren que sigas los pasos\n";
+    out << "correctamente y demuestres que comprendes el sistema.\n";
+    out << "\n";
+    out << "Al finalizar, recibiras un reporte detallado con tu puntaje.\n";
+    mostrarSeparador();
+    
+    out << "\nDeseas iniciar el modo demo? (s/n): ";
+    out.flush();
+    QString respuesta = leerLinea();
+    
+    if (respuesta.toLower() == "s") {
+        if (demoController.iniciarModoDemo()) {
+            mostrarExito("Modo demo iniciado correctamente");
+            pausa();
+            menuModoDemo();
+        } else {
+            mostrarError("Error al iniciar modo demo");
+            pausa();
+        }
+    }
+}
+
+void ConsoleView::menuModoDemo() {
+    int opcion = 0;
+    do {
+        limpiarPantalla();
+        mostrarSeparador();
+        out << colorCyan("MODO DEMO - MENU DE PRUEBAS") << "\n";
+        mostrarSeparador();
+        
+        auto resultados = demoController.obtenerResultados();
+        if (!resultados.isEmpty()) {
+            out << colorVerde(QString("Progreso: %1 pruebas | Puntaje: %2/10 puntos")
+                            .arg(resultados.size())
+                            .arg(demoController.calcularPuntajeTotal())) << "\n";
+            mostrarSeparador();
+        }
+        
+        out << " 1. Prueba 1: Navegacion por el Sistema (3 pasos)\n";
+        out << " 2. Prueba 2: Agendar una Cirugia (4 pasos)\n";
+        out << " 3. Prueba 3: Sistema de Limpieza (3 pasos)\n";
+        out << " 4. Ver Tutorial Interactivo\n";
+        out << " 5. Ver Progreso Detallado\n";
+        out << " 0. Finalizar y Ver Reporte Completo\n";
+        mostrarSeparador();
+        
+        opcion = leerEntero("Seleccione una opcion", 0, 5);
+        
+        switch (opcion) {
+            case 1:
+                ejecutarPruebaDemo(TipoPrueba::NAVEGACION_MENU);
+                break;
+            case 2:
+                ejecutarPruebaDemo(TipoPrueba::AGENDAR_CIRUGIA);
+                break;
+            case 3:
+                ejecutarPruebaDemo(TipoPrueba::SISTEMA_LIMPIEZA);
+                break;
+            case 4:
+                mostrarTutorialInteractivo();
+                break;
+            case 5:
+                mostrarProgresoDetallado();
+                break;
+            case 0:
+                finalizarYMostrarReporte();
+                break;
+            default:
+                mostrarError("Opcion invalida");
+        }
+    } while (opcion != 0);
+}
+
+void ConsoleView::ejecutarPruebaDemo(TipoPrueba tipo) {
+    limpiarPantalla();
+    mostrarSeparador();
+    
+    QString nombrePrueba;
+    QString descripcion;
+    
+    switch (tipo) {
+        case TipoPrueba::NAVEGACION_MENU:
+            nombrePrueba = "NAVEGACION POR EL SISTEMA";
+            descripcion = "Navega correctamente por los menus del sistema";
+            break;
+        case TipoPrueba::AGENDAR_CIRUGIA:
+            nombrePrueba = "AGENDAR UNA CIRUGIA";
+            descripcion = "Completa el proceso de agendar una cirugia";
+            break;
+        case TipoPrueba::SISTEMA_LIMPIEZA:
+            nombrePrueba = "SISTEMA DE LIMPIEZA";
+            descripcion = "Demuestra que comprendes el sistema de limpieza";
+            break;
+        default:
+            nombrePrueba = "PRUEBA";
+            descripcion = "Completando prueba...";
+    }
+    
+    out << colorCyan("=== PRUEBA: " + nombrePrueba + " ===") << "\n\n";
+    out << descripcion << "\n\n";
+    out << colorAmarillo("Esta es una prueba INTERACTIVA con pasos a seguir.") << "\n";
+    out << "Presiona 0 en cualquier momento para cancelar.\n\n";
+    mostrarSeparador();
+    
+    out << "\nPresiona Enter para comenzar...";
+    out.flush();
+    leerLinea();
+    
+    // Ejecutar la prueba específica
+    bool exito = false;
+    
+    switch (tipo) {
+        case TipoPrueba::NAVEGACION_MENU:
+            exito = ejecutarPruebaNavegacionInteractiva();
+            break;
+        case TipoPrueba::AGENDAR_CIRUGIA:
+            exito = ejecutarPruebaAgendarInteractiva();
+            break;
+        case TipoPrueba::SISTEMA_LIMPIEZA:
+            exito = ejecutarPruebaSistemaLimpiezaInteractiva();
+            break;
+        default:
+            break;
+    }
+    
+    // Mostrar resultado
+    limpiarPantalla();
+    mostrarSeparador();
+    if (exito) {
+        out << "\n" << colorVerde("╔════════════════════════════════════════════════════╗") << "\n";
+        out << colorVerde("║     PRUEBA COMPLETADA EXITOSAMENTE                ║") << "\n";
+        out << colorVerde("╚════════════════════════════════════════════════════╝") << "\n\n";
+        
+        auto resultados = demoController.obtenerResultados();
+        if (!resultados.isEmpty()) {
+            auto ultimo = resultados.last();
+            out << "Pasos completados: " << colorVerde(QString("%1/%2").arg(ultimo.pasosExitosos).arg(ultimo.totalPasos)) << "\n";
+            out << "Intentos: " << ultimo.intentos << "\n";
+            out << "Tiempo: " << ultimo.duracionSegundos << " segundos\n\n";
+            out << colorCyan("Feedback: ") << ultimo.feedback << "\n";
+        }
+    } else {
+        out << "\n" << colorRojo("╔════════════════════════════════════════════════════╗") << "\n";
+        out << colorRojo("║     PRUEBA NO COMPLETADA                          ║") << "\n";
+        out << colorRojo("╚════════════════════════════════════════════════════╝") << "\n\n";
+        out << colorAmarillo("No completaste todos los pasos requeridos.\n");
+        out << "Revisa el tutorial (opcion 4) y vuelve a intentarlo.\n";
+    }
+    
+    mostrarSeparador();
+    pausa();
+}
+
+// ============================================================
+//       PRUEBAS INTERACTIVAS ADAPTADAS AL CÓDIGO REAL
+// ============================================================
+
+bool ConsoleView::ejecutarPruebaNavegacionInteractiva() {
+    demoController.iniciarPruebaNavegacion();
+    
+    // PASO 1: Ir a Gestión de Quirófano
+    limpiarPantalla();
+    mostrarSeparador();
+    out << colorCyan("PASO 1 de 3: Acceder a Gestion de Quirofano\n");
+    mostrarSeparador();
+    out << "\nEn el menu principal, debes seleccionar la opcion\n";
+    out << "que te permite gestionar quirofanos.\n\n";
+    out << "Opciones del menu principal:\n";
+    out << " 1. Gestion de Quirofano\n";
+    out << " 2. Control IoT\n";
+    out << " 3. Cerrar sesion\n\n";
+    
+    int opcion1 = leerEntero("Cual opcion debes seleccionar?", 0, 3);
+    
+    if (opcion1 == 0) {
+        mostrarInfo("Prueba cancelada");
+        pausa();
+        return false;
+    }
+    
+    if (!demoController.registrarPasoNavegacion(opcion1)) {
+        mostrarError("Opcion incorrecta! Debes seleccionar 'Gestion de Quirofano'.");
+        pausa();
+        return false;
+    }
+    
+    mostrarExito("Correcto! Paso 1 completado.");
+    pausa();
+    
+    // PASO 2: Ver información del quirófano
+    limpiarPantalla();
+    mostrarSeparador();
+    out << colorCyan("PASO 2 de 3: Ver Informacion del Quirofano\n");
+    mostrarSeparador();
+    out << "\nAhora debes ver la informacion del quirofano.\n\n";
+    out << "Opciones del menu de quirofanos:\n";
+    out << " 1. Ver informacion del quirofano\n";
+    out << " 2. Consultar horarios disponibles\n";
+    out << " 3. Agendar cirugia\n";
+    out << " 4. Ver reservas\n";
+    out << " 5. Cancelar reserva\n";
+    out << " 6. Validar horario (sin agendar)\n";
+    out << " 0. Volver al menu anterior\n\n";
+    
+    int opcion2 = leerEntero("Cual opcion seleccionas?", 0, 6);
+    
+    if (opcion2 == 0) {
+        mostrarInfo("Prueba cancelada");
+        pausa();
+        return false;
+    }
+    
+    if (!demoController.registrarPasoNavegacion(opcion2)) {
+        mostrarError("Opcion incorrecta! Debes seleccionar 'Ver informacion del quirofano'.");
+        pausa();
+        return false;
+    }
+    
+    mostrarExito("Correcto! Paso 2 completado.");
+    out << "\n[SIMULACION] Mostrando informacion del quirofano...\n";
+    out << " - ID: 1\n";
+    out << " - Nombre: Quirofano Principal\n";
+    out << " - Capacidad: 10 personas\n";
+    out << " - Estado: Disponible\n";
+    pausa();
+    
+    // PASO 3: Regresar al menú anterior
+    limpiarPantalla();
+    mostrarSeparador();
+    out << colorCyan("PASO 3 de 3: Regresar al Menu Principal\n");
+    mostrarSeparador();
+    out << "\nFinalmente, debes regresar al menu principal.\n\n";
+    out << "Que opcion usas para volver? (ingresa el numero): ";
+    out.flush();
+    
+    int opcion3 = leerEntero("", 0, 10);
+    
+    if (!demoController.registrarPasoNavegacion(0)) {  // Siempre debe ser 0
+        mostrarError("Opcion incorrecta! Debes usar 0 para volver al menu anterior.");
+        pausa();
+        return false;
+    }
+    
+    mostrarExito("Excelente! Completaste los 3 pasos de navegacion.");
+    pausa();
+    
+    return demoController.verificarNavegacionCompleta();
+}
+
+bool ConsoleView::ejecutarPruebaAgendarInteractiva() {
+    demoController.iniciarPruebaAgendarCita();
+    
+    const int ID_QUIROFANO = 1; // Quirófano fijo del sistema
+    
+    // PASO 1: Comprender el formato de fecha
+    limpiarPantalla();
+    mostrarSeparador();
+    out << colorCyan("PASO 1 de 4: Formato de Fecha\n");
+    mostrarSeparador();
+    out << "\nEl sistema utiliza el formato dd/mm/aaaa para fechas.\n";
+    out << colorAmarillo("Ejemplo: 25/12/2025 (25 de diciembre de 2025)\n\n");
+    
+    out << "Cual es el formato correcto de fecha que usa el sistema?\n";
+    out << " 1. dd/mm/aaaa\n";
+    out << " 2. yyyy-mm-dd\n";
+    out << " 3. mm/dd/yyyy\n";
+    out << " 0. Cancelar\n\n";
+    
+    int respuesta1 = leerEntero("Selecciona la opcion correcta", 0, 3);
+    
+    if (respuesta1 == 0) {
+        mostrarInfo("Prueba cancelada");
+        pausa();
+        return false;
+    }
+    
+    if (respuesta1 != 1) {
+        mostrarError("Incorrecto! El formato es dd/mm/aaaa");
+        pausa();
+        return false;
+    }
+    
+    mostrarExito("Correcto! Entiendes el formato de fecha.");
+    demoController.validarDatosAgenda(ID_QUIROFANO, "dummy", "dummy"); // Marcar paso 1
+    pausa();
+    
+    // PASO 2: Ingresar fecha válida
+    limpiarPantalla();
+    mostrarSeparador();
+    out << colorCyan("PASO 2 de 4: Ingresar Fecha\n");
+    mostrarSeparador();
+    out << "\nIngresa una fecha futura para la cirugia.\n";
+    out << colorAmarillo("Formato: dd/mm/aaaa (ejemplo: 25/12/2025)\n");
+    out << "O ingresa 0 para cancelar\n\n";
+    
+    QDate fecha;
+    while (true) {
+        out << "Fecha de la cirugia: ";
+        out.flush();
+        QString fechaStr = leerLinea();
+        
+        if (fechaStr == "0") {
+            mostrarInfo("Prueba cancelada");
+            pausa();
+            return false;
+        }
+        
+        fecha = QDate::fromString(fechaStr, "dd/MM/yyyy");
+        
+        if (fecha.isValid() && fecha >= QDate::currentDate()) {
+            break;
+        } else if (!fecha.isValid()) {
+            mostrarError("Fecha invalida. Usa el formato dd/mm/aaaa");
+        } else {
+            mostrarError("La fecha debe ser futura");
+        }
+    }
+    
+    mostrarExito("Fecha valida ingresada!");
+    
+    // PASO 3: Ingresar horarios válidos
+    out << "\n" << colorCyan("PASO 3 de 4: Ingresar Horarios\n");
+    out << colorAmarillo("Formato: hh:mm (ejemplo: 09:30)\n\n");
+    
+    QTime horaInicio, horaFin;
+    while (true) {
+        out << "Hora de inicio [0 para cancelar]: ";
+        out.flush();
+        QString horaStr = leerLinea();
+        
+        if (horaStr == "0") {
+            mostrarInfo("Prueba cancelada");
+            pausa();
+            return false;
+        }
+        
+        horaInicio = QTime::fromString(horaStr, "hh:mm");
+        
+        if (horaInicio.isValid()) {
+            break;
+        } else {
+            mostrarError("Hora invalida. Usa el formato hh:mm");
+        }
+    }
+    
+    while (true) {
+        out << "Hora de fin [0 para cancelar]: ";
+        out.flush();
+        QString horaStr = leerLinea();
+        
+        if (horaStr == "0") {
+            mostrarInfo("Prueba cancelada");
+            pausa();
+            return false;
+        }
+        
+        horaFin = QTime::fromString(horaStr, "hh:mm");
+        
+        if (horaFin.isValid() && horaFin > horaInicio) {
+            break;
+        } else if (!horaFin.isValid()) {
+            mostrarError("Hora invalida. Usa el formato hh:mm");
+        } else {
+            mostrarError("La hora de fin debe ser posterior a la de inicio");
+        }
+    }
+    
+    QDateTime inicio(fecha, horaInicio);
+    QDateTime fin(fecha, horaFin);
+    
+    // Validar datos
+    QString fechaInicioStr = inicio.toString("yyyy-MM-dd hh:mm");
+    QString fechaFinStr = fin.toString("yyyy-MM-dd hh:mm");
+    
+    if (!demoController.validarDatosAgenda(ID_QUIROFANO, fechaInicioStr, fechaFinStr)) {
+        mostrarError("Error al validar datos");
+        pausa();
+        return false;
+    }
+    
+    mostrarExito("Horarios validos ingresados!");
+    pausa();
+    
+    // PASO 4: Ingresar motivo y confirmar
+    limpiarPantalla();
+    mostrarSeparador();
+    out << colorCyan("PASO 4 de 4: Motivo y Confirmacion\n");
+    mostrarSeparador();
+    
+    out << "\nMotivo de la cirugia [0 para cancelar]: ";
+    out.flush();
+    QString motivo = leerLinea();
+    
+    if (motivo == "0") {
+        mostrarInfo("Prueba cancelada");
+        pausa();
+        return false;
+    }
+    
+    if (motivo.isEmpty()) {
+        mostrarError("Debes ingresar un motivo");
+        pausa();
+        return false;
+    }
+    
+    // Mostrar resumen
+    out << "\n--- Resumen de la Reserva ---\n";
+    out << "Fecha: " << fecha.toString("dd/MM/yyyy") << "\n";
+    out << "Hora inicio: " << horaInicio.toString("hh:mm") << "\n";
+    out << "Hora fin: " << horaFin.toString("hh:mm") << "\n";
+    out << "Motivo: " << motivo << "\n\n";
+    
+    out << "Confirmas esta reserva? (s/n): ";
+    out.flush();
+    QString confirmacion = leerLinea();
+    
+    if (confirmacion.toLower() != "s") {
+        mostrarInfo("Reserva no confirmada");
+        pausa();
+        return false;
+    }
+    
+    bool exito = demoController.confirmarAgendaDemo();
+    
+    if (exito) {
+        mostrarExito("Reserva agendada exitosamente en modo demo!");
+        out << "\n" << colorAmarillo("[NOTA: Esto es simulacion. No se guardo en la BD real]") << "\n";
+    }
+    
+    pausa();
+    return exito;
+}
+
+bool ConsoleView::ejecutarPruebaSistemaLimpiezaInteractiva() {
+    demoController.iniciarPruebaSistemaLimpieza();
+    
+    const int ID_QUIROFANO = 1;
+    
+    // PASO 1: Comprender el sistema
+    limpiarPantalla();
+    mostrarSeparador();
+    out << colorCyan("PASO 1 de 3: Comprender el Sistema\n");
+    mostrarSeparador();
+    out << "\nEl sistema de limpieza IoT permite:\n";
+    out << "  • Activar/Desactivar limpieza automatica\n";
+    out << "  • Monitorear estado en tiempo real\n";
+    out << "  • Registrar acciones para auditoria\n\n";
+    
+    out << colorAmarillo("IMPORTANTE:\n");
+    out << "  • Requiere contraseña para activar/desactivar\n";
+    out << "  • Solo usuarios autorizados pueden modificarlo\n";
+    out << "  • Todas las acciones quedan registradas\n\n";
+    
+    out << "Leiste y comprendiste la informacion? (s/n): ";
+    out.flush();
+    QString entiende = leerLinea();
+    
+    if (entiende.toLower() != "s") {
+        mostrarError("Debes leer la informacion antes de continuar");
+        pausa();
+        return false;
+    }
+    
+    // PASO 2: Responder preguntas de comprensión
+    limpiarPantalla();
+    mostrarSeparador();
+    out << colorCyan("PASO 2 de 3: Verificacion de Conocimiento\n");
+    mostrarSeparador();
+    out << "\nResponde las siguientes preguntas:\n\n";
+    
+    out << "1. El sistema requiere contraseña? (s/n): ";
+    out.flush();
+    QString resp1 = leerLinea();
+    
+    out << "2. Las acciones quedan registradas? (s/n): ";
+    out.flush();
+    QString resp2 = leerLinea();
+    
+    out << "3. Cualquier usuario puede modificar el sistema? (s/n): ";
+    out.flush();
+    QString resp3 = leerLinea();
+    
+    if (resp1.toLower() != "s" || resp2.toLower() != "s" || resp3.toLower() != "n") {
+        mostrarError("Respuestas incorrectas!");
+        out << "\nRespuestas correctas:\n";
+        out << "1. Si - requiere contraseña\n";
+        out << "2. Si - quedan registradas\n";
+        out << "3. No - solo usuarios autorizados\n";
+        pausa();
+        return false;
+    }
+    
+    if (!demoController.validarActivacionSistema(ID_QUIROFANO)) {
+        pausa();
+        return false;
+    }
+    
+    mostrarExito("Respuestas correctas!");
+    pausa();
+    
+    // PASO 3: Simular cambio de estado
+    limpiarPantalla();
+    mostrarSeparador();
+    out << colorCyan("PASO 3 de 3: Simulacion de Uso\n");
+    mostrarSeparador();
+    out << "\nEn el sistema real, seguirias estos pasos:\n";
+    out << "  1. Ir a 'Control IoT'\n";
+    out << "  2. Seleccionar 'Sistema de limpieza'\n";
+    out << "  3. Elegir activar o desactivar\n";
+    out << "  4. Ingresar tu contraseña\n";
+    out << "  5. Confirmar la accion\n\n";
+    
+    out << "Entiendes el proceso completo? (s/n): ";
+    out.flush();
+    QString entiendeProc = leerLinea();
+    
+    if (entiendeProc.toLower() != "s") {
+        mostrarError("Repasa el tutorial antes de continuar");
+        pausa();
+        return false;
+    }
+    
+    bool exito = demoController.confirmarEntendimientoSistema();
+    
+    if (exito) {
+        mostrarExito("Excelente! Comprendes el sistema de limpieza.");
+        out << "\n" << colorVerde("[PRUEBA COMPLETADA]") << "\n";
+    }
+    
+    pausa();
+    return exito;
+}
+
+void ConsoleView::mostrarTutorialInteractivo() {
+    limpiarPantalla();
+    out << colorCyan("========================================================") << "\n";
+    out << colorCyan("              TUTORIAL INTERACTIVO                      ") << "\n";
+    out << colorCyan("========================================================") << "\n\n";
+    
+    out << colorVerde("1. NAVEGACION DEL SISTEMA:") << "\n";
+    out << "   - Usa numeros para seleccionar opciones\n";
+    out << "   - Opcion 0 siempre regresa al menu anterior\n";
+    out << "   - Lee cada opcion antes de seleccionar\n\n";
+    
+    out << colorVerde("2. FORMATO DE FECHAS Y HORAS:") << "\n";
+    out << "   - Fechas: dd/mm/aaaa (ejemplo: 25/12/2025)\n";
+    out << "   - Horas: hh:mm (ejemplo: 09:30)\n";
+    out << "   - La hora de fin debe ser posterior a la de inicio\n\n";
+    
+    out << colorVerde("3. AGENDAR CIRUGIAS:") << "\n";
+    out << "   - El sistema trabaja con el quirofano ID = 1\n";
+    out << "   - Valida conflictos automaticamente\n";
+    out << "   - Requiere 30 minutos entre cirugias\n";
+    out << "   - Puedes cancelar ingresando 0\n\n";
+    
+    out << colorVerde("4. SISTEMA DE LIMPIEZA:") << "\n";
+    out << "   - Requiere contraseña siempre\n";
+    out << "   - Solo usuarios autorizados\n";
+    out << "   - Todas las acciones se registran\n\n";
+    
+    out << colorVerde("5. CONSEJOS:") << "\n";
+    out << "   - Lee todas las instrucciones\n";
+    out << "   - Sigue los pasos en orden\n";
+    out << "   - Presta atencion a los formatos\n";
+    out << "   - Puedes repetir las pruebas\n\n";
+    
+    mostrarSeparador();
+    pausa();
+}
+
+void ConsoleView::mostrarProgresoDetallado() {
+    limpiarPantalla();
+    mostrarSeparador();
+    out << colorCyan("PROGRESO DETALLADO") << "\n";
+    mostrarSeparador();
+    
+    auto resultados = demoController.obtenerResultados();
+    
+    if (resultados.isEmpty()) {
+        out << "\n" << colorAmarillo("Aun no has completado ninguna prueba.") << "\n";
+        out << "Selecciona una prueba del menu para comenzar.\n";
+    } else {
+        out << "\nPruebas realizadas: " << resultados.size() << "\n";
+        out << "Puntaje acumulado: " << colorVerde(QString::number(demoController.calcularPuntajeTotal())) << "/10 puntos\n\n";
+        
+        int i = 1;
+        for (const auto& res : resultados) {
+            QString nombre;
+            switch(res.tipo) {
+                case TipoPrueba::NAVEGACION_MENU: nombre = "Navegacion"; break;
+                case TipoPrueba::AGENDAR_CIRUGIA: nombre = "Agendar Cirugia"; break;
+                case TipoPrueba::SISTEMA_LIMPIEZA: nombre = "Sistema Limpieza"; break;
+                default: nombre = "Otra"; break;
+            }
+            
+            out << "--- Prueba " << i++ << ": " << nombre << " ---\n";
+            out << "Estado: " << (res.completada ? colorVerde("[EXITOSA]") : colorRojo("[INCOMPLETA]")) << "\n";
+            out << "Pasos: " << res.pasosExitosos << "/" << res.totalPasos << "\n";
+            out << "Intentos: " << res.intentos << "\n";
+            out << "Tiempo: " << res.duracionSegundos << " segundos\n";
+            out << "Feedback: " << res.feedback << "\n\n";
+        }
+    }
+    
+    pausa();
+}
+
+void ConsoleView::finalizarYMostrarReporte() {
+    limpiarPantalla();
+    demoController.finalizarModoDemo();
+    
+    QString reporte = demoController.generarReporteCapacitacion();
+    out << reporte;
+    
+    out << "\n" << colorCyan("Gracias por completar el modo demo!") << "\n";
+    out << "Ahora estas preparado para usar el sistema real.\n";
+    
+    out << "\nPresiona Enter para volver al menu principal...";
+    out.flush();
+    leerLinea();
 }

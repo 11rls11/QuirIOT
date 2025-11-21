@@ -6,6 +6,8 @@
 #include "../controller/IoTController.h"
 #include <QTextStream>
 #include <QString>
+#include "../controller/DemoController.h"
+
 
 class ConsoleView {
 public:
@@ -18,9 +20,22 @@ private:
     AutenticacionController& autenticacionController;
     QuirofanoController& quirofanoController;
     IoTController& iotController;
-
+    DemoController demoController;
     QTextStream in;
     QTextStream out;
+    
+    // Métodos modo demo
+    void iniciarModoDemo();
+    void menuModoDemo();
+    void ejecutarPruebaDemo(TipoPrueba tipo);
+    void mostrarTutorialInteractivo();
+    void mostrarProgresoDetallado();
+    void finalizarYMostrarReporte();
+    
+    // Pruebas interactivas
+    bool ejecutarPruebaNavegacionInteractiva();
+    bool ejecutarPruebaAgendarInteractiva();
+    bool ejecutarPruebaSistemaLimpiezaInteractiva();
 
     // Menus
     void mostrarMenuPrincipal();
