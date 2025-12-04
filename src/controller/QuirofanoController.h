@@ -4,11 +4,15 @@
 #include "../domain/quirofano/Quirofano.h"
 #include "../domain/quirofano/QuirofanoRepository.h"
 #include "../domain/quirofano/ReservaService.h"
+#include "IoTController.h"
 #include <QVector>
+#include <QTimer>
 
 class QuirofanoController {
 public:
-    QuirofanoController(QuirofanoRepository& quirofanoRepo, ReservaService& reservaServ);
+    QuirofanoController(QuirofanoRepository& quirofanoRepo,
+                        ReservaService& reservaServ,
+                        IoTController& iotCtrl);
 
     QVector<Quirofano*> listarQuirofanos();
     QVector<Quirofano*> listarDisponibles();
@@ -30,6 +34,7 @@ public:
 private:
     QuirofanoRepository& quirofanoRepository;
     ReservaService& reservaService;
+    IoTController& iotController;
 };
 
 #endif

@@ -1,215 +1,210 @@
 #include "IoTController.h"
-#include "../infra/security/SecurityManager.h"
-#include "../domain/usuario/UsuarioRepository.h"
-#include <QSqlQuery>
-#include <QSqlError>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QEventLoop>
 #include <QDebug>
+#include "../domain/sensor/LecturaSensor.h"
 
-IoTController::IoTController(SensorRepository& sensorRepo, ActuadorRepository& actuadorRepo,
-                             QSqlDatabase& db)
-    : sensorRepository(sensorRepo), actuadorRepository(actuadorRepo), database(db) {
-    qInfo() << "[IoTController] Inicializado";
-}
-
-ResultadoOperacionSistema IoTController::activarSistemaLimpieza(
-    int idQuirofano,
-    int idUsuario,
-    const QString& password)
+IoTController::IoTController(SensorRepository& sRepo, ActuadorRepository& aRepo, QSqlDatabase& db, QObject* parent)
+    : QObject(parent),
+    sensorRepo(sRepo),
+    actuadorRepo(aRepo),
+    database(db),
+    lastTemp(0.0), lastHum(0.0), lastAire(0),
+    ventiladorOn(false), ledOn(false), enMantenimiento(false)
 {
-    ResultadoOperacionSistema resultado;
-    resultado.exito = false;
-    resultado.accion = "ACTIVAR";
-
-    qInfo() << "Solicitud de activacion del sistema de limpieza";
-    qInfo() << "       Quirofano:" << idQuirofano << "Usuario:" << idUsuario;
-
-    // Validar contraseña
-    if (!validarPassword(idUsuario, password)) {
-        resultado.mensaje = "Contrasena incorrecta. Operacion cancelada.";
-        qWarning() << "Contrasena incorrecta para usuario" << idUsuario;
-        return resultado;
-    }
-
-    // Verificar si ya está activo
-    if (consultarEstadoSistemaLimpieza(idQuirofano)) {
-        resultado.mensaje = "El sistema de limpieza ya esta activo en este quirofano";
-        qInfo() << "Sistema ya estaba activo";
-        return resultado;
-    }
-
-    // Activar sistema
-    if (!actualizarEstadoSistema(idQuirofano, true)) {
-        resultado.mensaje = "Error al activar el sistema en la base de datos";
-        qCritical() << "Error al actualizar estado del sistema";
-        return resultado;
-    }
-
-    // Registrar acción en historial
-    if (!registrarAccionSistema(idQuirofano, idUsuario, "ACTIVAR",
-                                "Activacion manual del sistema")) {
-        qWarning() << "No se pudo registrar en historial";
-    }
-
-    // Obtener nombre del usuario para el mensaje
-    UsuarioRepository usuarioRepo(database);
-    auto usuario = usuarioRepo.buscarPorId(idUsuario);
-    resultado.nombreUsuario = usuario ? usuario->getNombre() : "Desconocido";
-    delete usuario;
-
-    resultado.exito = true;
-    resultado.mensaje = "Sistema de limpieza ACTIVADO exitosamente";
-
-    qInfo() << "Sistema de limpieza activado en quirofano" << idQuirofano;
-    qInfo() << "          Por:" << resultado.nombreUsuario;
-
-    return resultado;
+    networkManager = nullptr;
+    timerMuestreo = nullptr;
 }
 
-ResultadoOperacionSistema IoTController::desactivarSistemaLimpieza(
-    int idQuirofano,
-    int idUsuario,
-    const QString& password,
-    const QString& razon)
-{
-    ResultadoOperacionSistema resultado;
-    resultado.exito = false;
-    resultado.accion = "DESACTIVAR";
-
-    qInfo() << "Solicitud de desactivacion del sistema de limpieza";
-    qInfo() << "       Quirofano:" << idQuirofano << "Usuario:" << idUsuario;
-    qInfo() << "       Razon:" << (razon.isEmpty() ? "No especificada" : razon);
-
-    // Validar contraseña
-    if (!validarPassword(idUsuario, password)) {
-        resultado.mensaje = "Contrasena incorrecta. Operacion cancelada.";
-        qWarning() << "[US 8] Contrasena incorrecta para usuario" << idUsuario;
-        return resultado;
+void IoTController::iniciarMonitoreo(const QString& ip, int intervaloMs) {
+    if (!networkManager) {
+        networkManager = new QNetworkAccessManager(this);
+        connect(networkManager, &QNetworkAccessManager::finished, this, &IoTController::alRecibirDatos);
     }
 
-    // Verificar si ya está desactivado
-    if (!consultarEstadoSistemaLimpieza(idQuirofano)) {
-        resultado.mensaje = "El sistema de limpieza ya esta desactivado en este quirofano";
-        qInfo() << "Sistema ya estaba desactivado";
-        return resultado;
+    if (!timerMuestreo) {
+        timerMuestreo = new QTimer(this);
+        connect(timerMuestreo, &QTimer::timeout, this, &IoTController::solicitarDatos);
     }
 
-    // Desactivar sistema
-    if (!actualizarEstadoSistema(idQuirofano, false)) {
-        resultado.mensaje = "Error al desactivar el sistema en la base de datos";
-        qCritical() << "Error al actualizar estado del sistema";
-        return resultado;
-    }
+    urlApi = "http://" + ip + "/datos";
+    urlMantenimiento = "http://" + ip + "/mantenimiento";
 
-    // Registrar acción en historial
-    QString razonFinal = razon.isEmpty() ? "Desactivacion manual del sistema" : razon;
-    if (!registrarAccionSistema(idQuirofano, idUsuario, "DESACTIVAR", razonFinal)) {
-        qWarning() << "No se pudo registrar en historial";
-    }
+    // qInfo() << "[IoT] Iniciando monitoreo en:" << urlApi;
 
-    // Obtener nombre del usuario
-    UsuarioRepository usuarioRepo(database);
-    auto usuario = usuarioRepo.buscarPorId(idUsuario);
-    resultado.nombreUsuario = usuario ? usuario->getNombre() : "Desconocido";
-    delete usuario;
-
-    resultado.exito = true;
-    resultado.mensaje = "Sistema de limpieza DESACTIVADO exitosamente";
-
-    qWarning() << "Sistema de limpieza desactivado en quirofano" << idQuirofano;
-    qWarning() << "Por: " << resultado.nombreUsuario;
-    qWarning() << "Razon: " << razonFinal;
-
-    return resultado;
+    solicitarDatos();
+    timerMuestreo->start(intervaloMs);
 }
 
-bool IoTController::validarPassword(int idUsuario, const QString& password) {
-    UsuarioRepository usuarioRepo(database);
-
-    // Obtener hash de la contraseña del usuario
-    QSqlQuery query(database);
-    query.prepare("SELECT contrasena FROM usuarios WHERE id_usuario = ?");
-    query.addBindValue(idUsuario);
-
-    if (!query.exec() || !query.next()) {
-        qCritical() << "No se pudo obtener contraseña del usuario" << idUsuario;
-        return false;
+void IoTController::detenerMonitoreo() {
+    if (timerMuestreo && timerMuestreo->isActive()) {
+        timerMuestreo->stop();
     }
-
-    QString hashAlmacenado = query.value(0).toString();
-
-    // Verificar contraseña usando SecurityManager
-    SecurityManager& securityManager = SecurityManager::getInstance();
-    return securityManager.verificarPassword(password, hashAlmacenado);
 }
 
-bool IoTController::registrarAccionSistema(int idQuirofano, int idUsuario,
-                                           const QString& accion, const QString& razon) {
-    QSqlQuery query(database);
-
-    query.prepare(
-        "INSERT INTO historial_sistema_limpieza "
-        "(id_quirofano, id_usuario, accion, razon) "
-        "VALUES (?, ?, ?, ?)"
-        );
-    query.addBindValue(idQuirofano);
-    query.addBindValue(idUsuario);
-    query.addBindValue(accion);
-    query.addBindValue(razon);
-
-    if (!query.exec()) {
-        qCritical() << "[ERROR] No se pudo registrar accion en historial:"
-                    << query.lastError().text();
-        return false;
-    }
-
-    qInfo() << "[OK] Accion registrada en historial_sistema_limpieza";
-    return true;
+void IoTController::forzarLectura() {
+    solicitarDatos();
 }
 
-bool IoTController::actualizarEstadoSistema(int idQuirofano, bool activo) {
-    QSqlQuery query(database);
+void IoTController::solicitarDatos() {
+    if (urlApi.isEmpty() || !networkManager) return;
+    QNetworkRequest request((QUrl(urlApi)));
+    networkManager->get(request);
+}
 
-    query.prepare(
-        "UPDATE quirofanos SET sistema_limpieza_activo = ? WHERE id_quirofano = ?"
-        );
-    query.addBindValue(activo);
-    query.addBindValue(idQuirofano);
-
-    if (!query.exec()) {
-        qCritical() << "[ERROR] No se pudo actualizar estado del sistema:"
-                    << query.lastError().text();
-        return false;
+void IoTController::alRecibirDatos(QNetworkReply* reply) {
+    QString urlString = reply->url().toString();
+    if (!urlString.endsWith("/datos")) {
+        reply->deleteLater();
+        return;
     }
 
-    qInfo() << "[OK] Estado del sistema actualizado:" << (activo ? "ACTIVO" : "DESACTIVADO");
-    return true;
+    if (reply->error() != QNetworkReply::NoError) {
+        reply->deleteLater();
+        return;
+    }
+
+    QByteArray data = reply->readAll();
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+
+    if (parseError.error != QJsonParseError::NoError) {
+        reply->deleteLater();
+        return;
+    }
+
+    if (doc.isObject()) {
+        QJsonObject obj = doc.object();
+
+        lastTemp = obj["temperatura"].toDouble();
+        lastHum = obj["humedad"].toDouble();
+        lastAire = obj["calidadAirePPM"].toInt();
+        ventiladorOn = obj["ventiladorEncendido"].toBool();
+        ledOn = obj["ledEncendido"].toBool();
+        enMantenimiento = obj["enMantenimiento"].toBool();
+
+        int idQ = 1;
+
+        int idTemp = sensorRepo.obtenerIdSensor(idQ, "TEMPERATURA");
+        if(idTemp > 0) sensorRepo.registrarLectura(LecturaSensor(idTemp, lastTemp, "TEMPERATURA"));
+
+        int idHum = sensorRepo.obtenerIdSensor(idQ, "HUMEDAD");
+        if(idHum > 0) sensorRepo.registrarLectura(LecturaSensor(idHum, lastHum, "HUMEDAD"));
+
+        int idAire = sensorRepo.obtenerIdSensor(idQ, "CALIDAD_AIRE");
+        if(idAire > 0) sensorRepo.registrarLectura(LecturaSensor(idAire, lastAire, "CALIDAD_AIRE"));
+
+        //qDebug() << "--- DEBUG TRIGGER ---";
+        //qDebug() << "Temp Leida:" << lastTemp << " (Rango 18-26)";
+        //qDebug() << "Hum Leida:" << lastHum << " (Rango 45-55)";
+
+        bool tempEnRango = (lastTemp >= 18.0 && lastTemp <= 26.0);
+        bool humEnRango  = (lastHum >= 45.0 && lastHum <= 55.0);
+
+        bool zonaSegura  = (tempEnRango || humEnRango);
+
+        //qDebug() << "Temp OK?" << tempEnRango;
+        //qDebug() << "Hum OK?" << humEnRango;
+        //qDebug() << "Zona Segura?" << zonaSegura;
+
+        QString cmdVentilador = zonaSegura ? "off" : "on";
+
+        bool alertaPPM = (lastAire > 400);
+        QString cmdLed = alertaPPM ? "on" : "off";
+
+        //qDebug() << "Comando a enviar -> Ventilador:" << cmdVentilador << " LED:" << cmdLed;
+
+        QString urlTrigger = urlApi;
+        urlTrigger.replace("/datos", QString("/control?ventilador=%1&led=%2").arg(cmdVentilador).arg(cmdLed));
+
+        //qDebug() << "URL Generada:" << urlTrigger;
+
+        QNetworkRequest requestTrigger((QUrl(urlTrigger)));
+        networkManager->get(requestTrigger);
+    }
+
+    reply->deleteLater();
+}
+
+QString IoTController::getResumenEstado() const {
+    if (urlApi.isEmpty()) return "Monitor no iniciado.";
+
+    return QString(
+               "--- ESTADO EN TIEMPO REAL ---\n"
+               "Temperatura:  %1 °C\n"
+               "Humedad:      %2 %\n"
+               "Calidad Aire: %3 PPM\n"
+               "Ventilador:   %4\n"
+               "LED Alerta:   %5\n"
+               "Limpieza:     %6\n"
+               "-----------------------------"
+               ).arg(lastTemp).arg(lastHum).arg(lastAire)
+        .arg(ventiladorOn ? "ENCENDIDO (ON)" : "APAGADO (OFF)")
+        .arg(ledOn ? "ENCENDIDO (ON)" : "APAGADO (OFF)")
+        .arg(enMantenimiento ? "EN PROCESO" : "INACTIVO");
+}
+
+QSqlDatabase& IoTController::obtenerDatabase() {
+    return database;
 }
 
 bool IoTController::consultarEstadoSistemaLimpieza(int idQuirofano) {
-    QSqlQuery query(database);
+    Q_UNUSED(idQuirofano);
+    return enMantenimiento;
+}
 
-    query.prepare(
-        "SELECT sistema_limpieza_activo FROM quirofanos WHERE id_quirofano = ?"
-        );
-    query.addBindValue(idQuirofano);
+ResultadoAccion IoTController::activarSistemaLimpieza(int idQuirofano, int idUsuario, const QString& password) {
+    Q_UNUSED(idQuirofano);
+    Q_UNUSED(idUsuario);
+    Q_UNUSED(password);
 
-    if (!query.exec() || !query.next()) {
-        qWarning() << "[WARN] No se pudo consultar estado del sistema para quirofano"
-                   << idQuirofano;
-        return true; // Por defecto asumimos activo
+    ResultadoAccion resultado;
+    resultado.exito = false;
+
+    if (urlMantenimiento.isEmpty()) {
+        resultado.mensaje = "Error: No hay conexión con el Hardware (IP desconocida).";
+        return resultado;
     }
 
-    return query.value(0).toBool();
+    QNetworkRequest request((QUrl(urlMantenimiento)));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+
+    QEventLoop loop;
+    QNetworkReply* reply = networkManager->post(request, "{}");
+
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+
+    loop.exec();
+
+    if (reply->error() == QNetworkReply::NoError) {
+        QByteArray resp = reply->readAll();
+
+        if (resp.contains("OK") || resp.contains("true")) {
+            resultado.exito = true;
+            resultado.mensaje = "Sistema de limpieza ACTIVADO (30 segundos).";
+            enMantenimiento = true;
+
+            QTimer::singleShot(500, this, &IoTController::forzarLectura);
+        } else {
+            resultado.mensaje = "Hardware rechazó la orden (posiblemente ya activo).";
+        }
+    } else {
+        resultado.mensaje = "Fallo de red: " + reply->errorString();
+    }
+
+    reply->deleteLater();
+    return resultado;
 }
 
-bool IoTController::obtenerEstadoQuirofano(int idQuirofano) {
+ResultadoAccion IoTController::desactivarSistemaLimpieza(int idQuirofano, int idUsuario, const QString& password, const QString& razon) {
     Q_UNUSED(idQuirofano);
-    qInfo() << "[TODO US 3] Obtener estado del quirofano";
-    return false;
-}
+    Q_UNUSED(idUsuario);
+    Q_UNUSED(password);
+    Q_UNUSED(razon);
 
-bool IoTController::registrarAccionEmergencia(int idQuirofano) {
-    Q_UNUSED(idQuirofano);
-    qInfo() << "[TODO US 9] Registrar accion de emergencia";
-    return false;
+    ResultadoAccion res;
+    res.exito = false;
+    res.mensaje = "El sistema de limpieza es automatico y dura 30s. No se puede cancelar manualmente.";
+    return res;
 }

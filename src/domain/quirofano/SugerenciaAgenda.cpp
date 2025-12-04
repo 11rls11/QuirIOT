@@ -1,5 +1,5 @@
 #include "SugerenciaAgenda.h"
-#include "Reserva.h"
+#include "src/domain/quirofano/Reserva.h"
 #include <algorithm>
 #include <QDebug>
 
@@ -12,7 +12,7 @@ HorarioSugerido SugerenciaAgenda::validarYSugerir(
     const QVector<Reserva*>& reservasExistentes)
 {
     Q_UNUSED(idQuirofano);
-    
+
     HorarioSugerido resultado;
     resultado.inicio = inicioDeseado;
     resultado.fin = finDeseado;
@@ -20,88 +20,97 @@ HorarioSugerido SugerenciaAgenda::validarYSugerir(
     resultado.requiereAjuste = false;
     resultado.minutosAntesAnterior = 0;
     resultado.minutosDespuesSiguiente = 0;
-    
-    // Verificar si hay conflicto directo con otra reserva
+
     for (const Reserva* reserva : reservasExistentes) {
         if (reserva->getEstado() == EstadoReserva::CANCELADA) {
             continue;
         }
-        
-        // Conflicto directo: se solapan los horarios
+
         if (reserva->tieneConflicto(inicioDeseado, finDeseado)) {
             resultado.tipo = TipoSugerencia::NO_DISPONIBLE;
             resultado.mensaje = "El horario seleccionado se solapa con otra cirugia existente";
             resultado.requiereAjuste = true;
-            
-            // Sugerir siguiente horario disponible
+
+            // Sugerir siguiente horario (30 min después del fin de la conflictiva)
             QDateTime proximoInicio = reserva->getFechaFin().addSecs(MINUTOS_SANITIZACION * 60);
             resultado.inicioSugerido = proximoInicio;
             resultado.finSugerido = proximoInicio.addSecs(inicioDeseado.secsTo(finDeseado));
-            
+
             return resultado;
         }
     }
-    
-    // Verificar conflictos de sanitización (30 minutos)
+
     int minutosAntes = 0;
     int minutosDespues = 0;
-    
-    if (tieneConflictoSanitizacion(inicioDeseado, finDeseado, reservasExistentes, 
+
+    if (tieneConflictoSanitizacion(inicioDeseado, finDeseado, reservasExistentes,
                                    minutosAntes, minutosDespues)) {
         resultado.minutosAntesAnterior = minutosAntes;
         resultado.minutosDespuesSiguiente = minutosDespues;
         resultado.requiereAjuste = true;
-        
-        // Determinar tipo de advertencia
-        if (minutosAntes > 0 && minutosAntes < MINUTOS_SANITIZACION && 
-            minutosDespues > 0 && minutosDespues < MINUTOS_SANITIZACION) {
+
+        bool problemaInicio = (minutosAntes >= 0 && minutosAntes < MINUTOS_SANITIZACION);
+        bool problemaFin = (minutosDespues >= 0 && minutosDespues < MINUTOS_SANITIZACION);
+
+        if (problemaInicio && problemaFin) {
             resultado.tipo = TipoSugerencia::ADVERTENCIA_AMBOS;
-        } else if (minutosAntes > 0 && minutosAntes < MINUTOS_SANITIZACION) {
+        } else if (problemaInicio) {
             resultado.tipo = TipoSugerencia::ADVERTENCIA_INICIO;
-        } else if (minutosDespues > 0 && minutosDespues < MINUTOS_SANITIZACION) {
+        } else if (problemaFin) {
             resultado.tipo = TipoSugerencia::ADVERTENCIA_FIN;
         }
-        
+
         resultado.mensaje = generarMensajeSugerencia(resultado.tipo, minutosAntes, minutosDespues);
-        
-        // Calcular horarios sugeridos ajustados
+
         Reserva* reservaAnterior = nullptr;
         Reserva* reservaSiguiente = nullptr;
-        
+
+        int minDiffAntes = 999999;
+        int minDiffDespues = 999999;
+
         for (Reserva* reserva : reservasExistentes) {
             if (reserva->getEstado() == EstadoReserva::CANCELADA) continue;
-            
+
             if (reserva->getFechaFin() <= inicioDeseado) {
-                if (!reservaAnterior || reserva->getFechaFin() > reservaAnterior->getFechaFin()) {
+                int diff = reserva->getFechaFin().secsTo(inicioDeseado);
+                if (diff < minDiffAntes) {
+                    minDiffAntes = diff;
                     reservaAnterior = reserva;
                 }
             }
-            
+
             if (reserva->getFechaInicio() >= finDeseado) {
-                if (!reservaSiguiente || reserva->getFechaInicio() < reservaSiguiente->getFechaInicio()) {
+                int diff = finDeseado.secsTo(reserva->getFechaInicio());
+                if (diff < minDiffDespues) {
+                    minDiffDespues = diff;
                     reservaSiguiente = reserva;
                 }
             }
         }
-        
-        // Ajustar horarios según sea necesario
-        if (reservaAnterior && minutosAntes < MINUTOS_SANITIZACION) {
+
+        if (reservaAnterior && problemaInicio) {
             resultado.inicioSugerido = ajustarHorarioInicio(inicioDeseado, reservaAnterior);
         } else {
             resultado.inicioSugerido = inicioDeseado;
         }
-        
-        if (reservaSiguiente && minutosDespues < MINUTOS_SANITIZACION) {
+
+        if (reservaSiguiente && problemaFin) {
             resultado.finSugerido = ajustarHorarioFin(finDeseado, reservaSiguiente);
         } else {
-            resultado.finSugerido = finDeseado;
+            if (resultado.inicioSugerido != inicioDeseado) {
+                qint64 duracion = inicioDeseado.secsTo(finDeseado);
+                resultado.finSugerido = resultado.inicioSugerido.addSecs(duracion);
+            } else {
+                resultado.finSugerido = finDeseado;
+            }
         }
+
     } else {
         resultado.mensaje = "Horario disponible sin conflictos";
         resultado.inicioSugerido = inicioDeseado;
         resultado.finSugerido = finDeseado;
     }
-    
+
     return resultado;
 }
 
@@ -115,39 +124,52 @@ bool SugerenciaAgenda::tieneConflictoSanitizacion(
     minutosAntesAnterior = 999999;
     minutosDespuesSiguiente = 999999;
     bool hayConflicto = false;
-    
+
+    qDebug() << "\n--- INICIO DEBUG CONFLICTO SANITIZACION ---";
+    qDebug() << "Buscando conflicto para Inicio:" << inicio.toString("dd/MM/yyyy HH:mm:ss");
+
     for (const Reserva* reserva : reservas) {
         if (reserva->getEstado() == EstadoReserva::CANCELADA) {
             continue;
         }
-        
-        // Calcular minutos entre fin de reserva anterior y inicio deseado
+
         if (reserva->getFechaFin() <= inicio) {
+
+            qDebug() << "--------------------------------------------------";
+            qDebug() << "Encontrada Reserva Anterior ID:" << reserva->getId();
+            qDebug() << "Fin Reserva:" << reserva->getFechaFin().toString("dd/MM/yyyy HH:mm:ss");
+            qDebug() << "Inicio Deseado:" << inicio.toString("dd/MM/yyyy HH:mm:ss");
+
             int minutos = reserva->getFechaFin().secsTo(inicio) / 60;
+            qDebug() << "Diferencia calculada (minutos):" << minutos;
+
             if (minutos < minutosAntesAnterior) {
                 minutosAntesAnterior = minutos;
-            }
-            if (minutos < MINUTOS_SANITIZACION) {
-                hayConflicto = true;
+                qDebug() << "-> Nuevo Minimo 'Antes' encontrado:" << minutosAntesAnterior;
             }
         }
-        
-        // Calcular minutos entre fin deseado e inicio de siguiente reserva
+
         if (reserva->getFechaInicio() >= fin) {
             int minutos = fin.secsTo(reserva->getFechaInicio()) / 60;
             if (minutos < minutosDespuesSiguiente) {
                 minutosDespuesSiguiente = minutos;
             }
-            if (minutos < MINUTOS_SANITIZACION) {
-                hayConflicto = true;
-            }
         }
     }
-    
-    // Si no hay reservas cercanas, no hay conflicto
-    if (minutosAntesAnterior == 999999) minutosAntesAnterior = 0;
-    if (minutosDespuesSiguiente == 999999) minutosDespuesSiguiente = 0;
-    
+
+    qDebug() << "--- RESULTADO FINAL ---";
+    qDebug() << "Minimo Antes:" << minutosAntesAnterior;
+    qDebug() << "Limite Sanitizacion:" << MINUTOS_SANITIZACION;
+
+    if (minutosAntesAnterior < MINUTOS_SANITIZACION) {
+        qDebug() << "-> CONFLICTO DETECTADO (Antes)";
+        hayConflicto = true;
+    }
+    if (minutosDespuesSiguiente < MINUTOS_SANITIZACION) {
+        hayConflicto = true;
+    }
+    qDebug() << "--------------------------------------------------\n";
+
     return hayConflicto;
 }
 
@@ -157,29 +179,23 @@ QString SugerenciaAgenda::generarMensajeSugerencia(
     int minutosDespues)
 {
     switch (tipo) {
-        case TipoSugerencia::ADVERTENCIA_INICIO:
-            return QString("ADVERTENCIA: Solo hay %1 minutos entre la cirugia anterior y esta. "
-                          "Se requieren minimo 30 minutos para sanitizacion. "
-                          "Se sugiere un horario alternativo.")
-                   .arg(minutosAntes);
-                   
-        case TipoSugerencia::ADVERTENCIA_FIN:
-            return QString("ADVERTENCIA: Solo hay %1 minutos entre esta cirugia y la siguiente. "
-                          "Se requieren minimo 30 minutos para sanitizacion. "
-                          "Se sugiere un horario alternativo.")
-                   .arg(minutosDespues);
-                   
-        case TipoSugerencia::ADVERTENCIA_AMBOS:
-            return QString("ADVERTENCIA: Tiempo insuficiente antes (%1 min) y despues (%2 min) "
-                          "de esta cirugia. Se requieren 30 minutos de sanitizacion. "
-                          "Se sugiere un horario alternativo.")
-                   .arg(minutosAntes).arg(minutosDespues);
-                   
-        case TipoSugerencia::NO_DISPONIBLE:
-            return "El horario seleccionado NO esta disponible (se solapa con otra cirugia)";
-            
-        default:
-            return "Horario disponible";
+    case TipoSugerencia::ADVERTENCIA_INICIO:
+        return QString("ADVERTENCIA: Solo hay %1 minutos desde la anterior. Minimo 30.")
+            .arg(minutosAntes);
+
+    case TipoSugerencia::ADVERTENCIA_FIN:
+        return QString("ADVERTENCIA: Solo hay %1 minutos hasta la siguiente. Minimo 30.")
+            .arg(minutosDespues);
+
+    case TipoSugerencia::ADVERTENCIA_AMBOS:
+        return QString("ADVERTENCIA: Tiempo insuficiente antes (%1 min) y despues (%2 min).")
+            .arg(minutosAntes).arg(minutosDespues);
+
+    case TipoSugerencia::NO_DISPONIBLE:
+        return "Horario no disponible (solapamiento).";
+
+    default:
+        return "Horario disponible";
     }
 }
 
@@ -187,28 +203,16 @@ QDateTime SugerenciaAgenda::ajustarHorarioInicio(
     const QDateTime& inicioDeseado,
     const Reserva* reservaAnterior)
 {
-    if (!reservaAnterior) {
-        return inicioDeseado;
-    }
-    
-    // Sugerir 30 minutos después del fin de la reserva anterior
-    QDateTime inicioSugerido = reservaAnterior->getFechaFin().addSecs(MINUTOS_SANITIZACION * 60);
-    
-    return inicioSugerido;
+    if (!reservaAnterior) return inicioDeseado;
+    return reservaAnterior->getFechaFin().addSecs(MINUTOS_SANITIZACION * 60);
 }
 
 QDateTime SugerenciaAgenda::ajustarHorarioFin(
     const QDateTime& finDeseado,
     const Reserva* reservaSiguiente)
 {
-    if (!reservaSiguiente) {
-        return finDeseado;
-    }
-    
-    // Sugerir terminar 30 minutos antes del inicio de la siguiente reserva
-    QDateTime finSugerido = reservaSiguiente->getFechaInicio().addSecs(-MINUTOS_SANITIZACION * 60);
-    
-    return finSugerido;
+    if (!reservaSiguiente) return finDeseado;
+    return reservaSiguiente->getFechaInicio().addSecs(-MINUTOS_SANITIZACION * 60);
 }
 
 HorarioSugerido SugerenciaAgenda::encontrarProximoDisponible(
@@ -218,38 +222,34 @@ HorarioSugerido SugerenciaAgenda::encontrarProximoDisponible(
     const QVector<Reserva*>& reservasExistentes)
 {
     Q_UNUSED(idQuirofano);
-    
-    // Ordenar reservas por fecha de inicio
+
     QVector<Reserva*> reservasOrdenadas = reservasExistentes;
     std::sort(reservasOrdenadas.begin(), reservasOrdenadas.end(),
               [](const Reserva* a, const Reserva* b) {
                   return a->getFechaInicio() < b->getFechaInicio();
               });
-    
+
     QDateTime candidato = inicioDeseado;
-    QDateTime finCandidato = candidato.addSecs(duracionMinutos * 60);
-    
-    // Buscar primer slot disponible
-    for (int intento = 0; intento < 20; intento++) {  // Máximo 20 intentos
-        HorarioSugerido validacion = validarYSugerir(
-            idQuirofano, candidato, finCandidato, reservasOrdenadas
-        );
-        
-        if (validacion.tipo == TipoSugerencia::DISPONIBLE) {
-            return validacion;
-        }
-        
-        // Mover al siguiente slot
-        if (validacion.inicioSugerido > candidato) {
-            candidato = validacion.inicioSugerido;
-            finCandidato = candidato.addSecs(duracionMinutos * 60);
-        } else {
-            // Avanzar 30 minutos
-            candidato = candidato.addSecs(30 * 60);
-            finCandidato = candidato.addSecs(duracionMinutos * 60);
-        }
+    if (candidato < QDateTime::currentDateTime()) {
+        candidato = QDateTime::currentDateTime().addSecs(60);
     }
-    
-    // Si no encontró nada, retornar el último intento
+
+    QDateTime finCandidato = candidato.addSecs(duracionMinutos * 60);
+
+    for (int i = 0; i < 50; i++) {
+        HorarioSugerido val = validarYSugerir(idQuirofano, candidato, finCandidato, reservasOrdenadas);
+
+        if (val.tipo == TipoSugerencia::DISPONIBLE) {
+            return val;
+        }
+
+        if (val.inicioSugerido > candidato) {
+            candidato = val.inicioSugerido;
+        } else {
+            candidato = candidato.addSecs(30 * 60);
+        }
+        finCandidato = candidato.addSecs(duracionMinutos * 60);
+    }
+
     return validarYSugerir(idQuirofano, candidato, finCandidato, reservasOrdenadas);
 }

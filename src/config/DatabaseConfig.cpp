@@ -3,6 +3,7 @@
 #include <QDebug>
 #include <QFile>
 #include <QTextStream>
+#include <QSqlQuery>
 
 DatabaseConfig::DatabaseConfig() : port(3306), conectado(false) {
     cargarConfiguracionPorDefecto();

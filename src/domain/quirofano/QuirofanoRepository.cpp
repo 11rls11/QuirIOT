@@ -97,14 +97,17 @@ bool QuirofanoRepository::estaDisponible(int id, const QDateTime& inicio, const 
         "WHERE id_quirofano = ? AND estado_reserva != 'CANCELADA' "
         "AND NOT (fecha_fin <= ? OR fecha_inicio >= ?)"
         );
+
     query.addBindValue(id);
-    query.addBindValue(inicio);
-    query.addBindValue(fin);
+
+    query.addBindValue(inicio.toString("yyyy-MM-dd HH:mm:ss"));
+    query.addBindValue(fin.toString("yyyy-MM-dd HH:mm:ss"));
 
     if (query.exec() && query.next()) {
-        return query.value(0).toInt() == 0;
+        return query.value(0).toLongLong() == 0;
     }
 
+    qWarning() << "[DB] Error verificando disponibilidad:" << query.lastError().text();
     return false;
 }
 
