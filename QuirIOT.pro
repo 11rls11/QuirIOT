@@ -50,7 +50,11 @@ HEADERS += \
     src/infra/security/SecurityManager.h \
     src/infra/exceptions/ValidacionException.h \
     src/view/ConsoleView.h \
-    src/controller/DemoController.h
+    src/controller/DemoController.h \
+    src/domain/usuario/UsuarioFirestoreRepository.h \
+    src/domain/quirofano/ReservaFirestoreRepository.h \
+    src/domain/sensor/LecturaSensor.h
+
 
 # ============================================
 # SOURCES
@@ -77,7 +81,10 @@ SOURCES += \
     src/infra/security/SecurityManager.cpp \
     src/infra/exceptions/ValidacionException.cpp \
     src/controller/DemoController.cpp \
-    src/view/ConsoleView.cpp
+    src/view/ConsoleView.cpp \
+    src/domain/usuario/UsuarioFirestoreRepository.cpp \
+    src/domain/quirofano/ReservaFirestoreRepository.cpp
+
 
 # ============================================
 # OTROS ARCHIVOS (visibles en Qt Creator)

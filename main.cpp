@@ -3,8 +3,15 @@
 #include <QFile>
 #include <QDir>
 #include <QTimeZone>
+#include <QEventLoop>
+#include <QTimer>
+#include <QThread>
+
 #include "src/config/DatabaseConfig.h"
+#include "src/config/FirebaseConfig.h"
 #include "src/domain/usuario/UsuarioRepository.h"
+#include "src/domain/usuario/UsuarioFirestoreRepository.h"
+#include "src/domain/usuario/Usuario.h"
 #include "src/domain/usuario/AutenticacionService.h"
 #include "src/domain/quirofano/QuirofanoRepository.h"
 #include "src/domain/quirofano/ReservaService.h"
@@ -27,16 +34,9 @@ int main(int argc, char *argv[])
     QTimeZone mexicoTimezone("America/Mexico_City");
     if (mexicoTimezone.isValid()) {
         qInfo() << "[OK] Zona horaria detectada: America/Mexico_City (UTC-6)";
-        qInfo() << "[INFO] Offset actual:" << mexicoTimezone.offsetFromUtc(QDateTime::currentDateTime()) / 3600 << "horas desde UTC";
-    } else {
-        qWarning() << "[WARN] Usando zona horaria del sistema";
     }
-
     qputenv("TZ", "America/Mexico_City");
-
     QCoreApplication::addLibraryPath("/usr/lib/qt6/plugins");
-    qDebug() << "[DEBUG] Plugin paths:" << QCoreApplication::libraryPaths();
-    qDebug() << "[DEBUG] Available drivers:" << QSqlDatabase::drivers();
 
     qInfo() << "=============================================================";
     qInfo() << "             QuirIOT - Sistema de Quirofanos IoT             ";
@@ -44,66 +44,81 @@ int main(int argc, char *argv[])
     qInfo() << "============================================================";
 
     try {
-        // Verificar archivo .env
         if (!QFile::exists(".env")) {
             qCritical() << "\n[ERROR] No se encontro el archivo .env";
-            qCritical() << "\n[SOLUCION]";
-            qCritical() << "   1. Copia .env.example a .env";
-            qCritical() << "   2. Edita .env con tus credenciales";
             return 1;
         }
 
-        // Cargar configuracion
-        qInfo() << "\n[INFO] Cargando configuracion desde .env...";
         DatabaseConfig& dbConfig = DatabaseConfig::getInstance();
         dbConfig.cargarDesdeEnv(".env");
 
-        SecurityManager& securityManager = SecurityManager::getInstance();
-        Q_UNUSED(SecurityManager::getInstance());
-        qInfo() << "[OK] Security Manager inicializado";
+        FirebaseConfig& firebaseConfig = FirebaseConfig::getInstance();
+        firebaseConfig.cargarDesdeEnv(".env");
 
-        // Conectar a base de datos
-        qInfo() << "\n[INFO] Conectando a la base de datos local...";
-        if (!dbConfig.conectarLocal()) {
-            qCritical() << "\n[ERROR] No se pudo conectar a la base de datos";
-            qCritical() << "\n[SOLUCION] Verifica:";
-            qCritical() << "   1. MariaDB corriendo: sudo systemctl status mariadb";
-            qCritical() << "   2. Credenciales correctas en .env";
-            qCritical() << "   3. Base de datos existe: mariadb -u root -p -e 'SHOW DATABASES;'";
-            return 1;
+        if (firebaseConfig.estaConfigurado()) {
+            qInfo() << "------------------------------------------------------------";
+            qInfo() << "[BOOT] Inicializando conexion a Nube (Firebase)...";
+            QEventLoop bootLoop;
+            bool conectado = false;
+            QString sysEmail = "admin@quiriot.com";
+            QString sysPass = "123456";
+
+            firebaseConfig.autenticarUsuario(sysEmail, sysPass, [&](bool ok, const QString& msg){
+                conectado = ok;
+                if(ok) qInfo() << "[BOOT] Nube Conectada. Token de sistema listo.";
+                else qWarning() << "[BOOT] Fallo conexion Nube:" << msg;
+                bootLoop.quit();
+            });
+            QTimer::singleShot(5000, &bootLoop, &QEventLoop::quit);
+            bootLoop.exec();
+            qInfo() << "------------------------------------------------------------\n";
         }
 
+        qInfo() << "[INFO] Conectando a MariaDB Local...";
+        if (!dbConfig.conectarLocal()) {
+            qCritical() << "[ERROR] Fallo conexion a MariaDB.";
+            return 1;
+        }
         QSqlDatabase& db = dbConfig.getDatabase();
 
-        // Inicializar repositorios (solo los necesarios para US 1 y 2)
-        qInfo() << "[INFO] Inicializando repositorios...";
         UsuarioRepository usuarioRepo(db);
         QuirofanoRepository quirofanoRepo(db);
-        SensorRepository sensorRepo(db);        // Esqueleto para US futuras
-        ActuadorRepository actuadorRepo(db);    // Esqueleto para US futuras
+        SensorRepository sensorRepo(db);
+        ActuadorRepository actuadorRepo(db);
 
-        // Inicializar servicios
-        qInfo() << "[INFO] Inicializando servicios...";
         AutenticacionService authService(db, usuarioRepo);
         ReservaService reservaService(db, quirofanoRepo, usuarioRepo);
 
-        // Inicializar controladores
-        qInfo() << "[INFO] Inicializando controladores...";
         AutenticacionController authController(authService);
-        QuirofanoController quirofanoController(quirofanoRepo, reservaService);
-        IoTController iotController(sensorRepo, actuadorRepo, dbConfig.getDatabase());  // Esqueleto
 
-        qInfo() << "\n[OK] Sistema inicializado correctamente";
+        QThread* iotThread = new QThread(&app);
 
-        // Iniciar aplicacion
-        ConsoleView vista(authController, quirofanoController, iotController);
+        IoTController* iotController = new IoTController(sensorRepo, actuadorRepo, db);
+
+        QuirofanoController quirofanoController(quirofanoRepo, reservaService, *iotController);
+
+        iotController->moveToThread(iotThread);
+
+        QString ipNodeMCU = "10.229.201.120";
+
+        QObject::connect(iotThread, &QThread::started, [iotController, ipNodeMCU]() {
+            iotController->iniciarMonitoreo(ipNodeMCU, 5000);
+        });
+
+        QObject::connect(&app, &QCoreApplication::aboutToQuit, iotThread, &QThread::quit);
+        QObject::connect(iotThread, &QThread::finished, iotThread, &QThread::deleteLater);
+        QObject::connect(iotThread, &QThread::finished, iotController, &QObject::deleteLater);
+
+        iotThread->start();
+
+        qInfo() << "[SISTEMA] Servicio de monitoreo IoT iniciado en segundo plano (" << ipNodeMCU << ")";
+        qInfo() << "Iniciando Interfaz...";
+
+        ConsoleView vista(authController, quirofanoController, *iotController);
         vista.ejecutar();
 
-        // Cerrar conexion
-        qInfo() << "\n[INFO] Cerrando conexion a la base de datos...";
         dbConfig.cerrarConexion();
-
-        qInfo() << "[OK] Aplicacion finalizada correctamente";
+        qInfo() << "[OK] Aplicacion finalizada.";
 
         return 0;
 

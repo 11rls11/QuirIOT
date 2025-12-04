@@ -2,8 +2,13 @@
 #include "../infra/exceptions/ValidacionException.h"
 #include <QDebug>
 
-QuirofanoController::QuirofanoController(QuirofanoRepository& quirofanoRepo, ReservaService& reservaServ)
-    : quirofanoRepository(quirofanoRepo), reservaService(reservaServ) {}
+QuirofanoController::QuirofanoController(QuirofanoRepository& quirofanoRepo,
+                                         ReservaService& reservaServ,
+                                         IoTController& iotCtrl)
+    : quirofanoRepository(quirofanoRepo),
+      reservaService(reservaServ),
+      iotController(iotCtrl)
+{}
 
 QVector<Quirofano*> QuirofanoController::listarQuirofanos() {
     return quirofanoRepository.listarTodos();
@@ -30,11 +35,43 @@ Reserva* QuirofanoController::agendarCirugia(int idUsuario, int idQuirofano,
 
         Reserva* reserva = reservaService.crearReserva(datos);
 
-        qInfo() << "[OK] Cirugia agendada. ID:" << reserva->getId();
+        qInfo() << "[OK] Cirugia agendada exitosamente. ID:" << reserva->getId();
+
+        QDateTime horaLimpieza = inicio.addSecs(-15 * 60);
+        QDateTime ahora = QDateTime::currentDateTime();
+
+        qint64 msecsParaLimpieza = ahora.msecsTo(horaLimpieza);
+
+        const qint64 MAX_TIMER_MS = 1800000000;
+
+        if (msecsParaLimpieza <= 0) {
+            qInfo() << "[ALERTA] Tiempo insuficiente para protocolo completo.";
+            qInfo() << "[AUTO] Iniciando limpieza de emergencia AHORA MISMO.";
+
+            iotController.activarSistemaLimpieza(idQuirofano, 0, "SISTEMA_AUTO");
+
+        } else if (msecsParaLimpieza > MAX_TIMER_MS) {
+            qInfo() << "[INFO] La cirugia es muy lejana (" << (msecsParaLimpieza/1000/60/60/24) << " dias).";
+            qInfo() << "       NO se programara la limpieza automatica en memoria para evitar errores.";
+            qInfo() << "       (En un sistema real, esto se guardaria en BD y un cron job lo ejecutaria).";
+
+        } else {
+            qInfo() << "--------------------------------------------------";
+            qInfo() << "[AUTO] Protocolo de Limpieza Programado";
+            qInfo() << "       Hora Limpieza:" << horaLimpieza.toString("hh:mm:ss");
+            qInfo() << "       Tiempo espera:" << (msecsParaLimpieza / 1000 / 60) << "minutos";
+            qInfo() << "--------------------------------------------------";
+
+            QTimer::singleShot(msecsParaLimpieza, &iotController, [this, idQuirofano]() {
+                qInfo() << "\n>>> [AUTO-TRIGGER] HORA DE LIMPIEZA ALCANZADA <<<";
+                iotController.activarSistemaLimpieza(idQuirofano, 0, "SISTEMA_AUTO");
+            });
+        }
+
         return reserva;
 
     } catch (const ValidacionException& e) {
-        qCritical() << "[ERROR] Al agendar cirugia:" << e.getMensaje();
+        qCritical() << "[ERROR] No se pudo agendar:" << e.getMensaje();
         throw;
     }
 }

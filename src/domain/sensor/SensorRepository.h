@@ -1,18 +1,22 @@
 #ifndef SENSORREPOSITORY_H
 #define SENSORREPOSITORY_H
 
-#include "Sensor.h"
 #include <QSqlDatabase>
 #include <QVector>
+#include "LecturaSensor.h"
+#include "../../config/FirebaseConfig.h"
 
 class SensorRepository {
 public:
     explicit SensorRepository(QSqlDatabase& db);
-
-    QVector<Sensor*> listarPorQuirofano(int idQuirofano);
+    
+    void registrarLectura(const LecturaSensor& lectura);
+    
+    int obtenerIdSensor(int idQuirofano, const QString& tipo);
 
 private:
     QSqlDatabase& database;
+    FirebaseConfig& firebase;
 };
 
-#endif
+#endif // SENSORREPOSITORY_H

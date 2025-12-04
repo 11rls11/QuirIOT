@@ -16,7 +16,8 @@ public:
 private:
     QSqlDatabase& database;
     UsuarioRepository& usuarioRepository;
+    
     QString generarToken(const Usuario& usuario);
 };
 
-#endif
+#endif // AUTENTICACIONSERVICE_H

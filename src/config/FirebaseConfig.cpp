@@ -2,25 +2,24 @@
 #include <QFile>
 #include <QTextStream>
 #include <QJsonDocument>
-#include <QJsonObject>
-#include <QNetworkRequest>
-#include <QNetworkReply>
 #include <QUrl>
 #include <QDebug>
 
 FirebaseConfig::FirebaseConfig()
     : QObject(nullptr),
     networkManager(nullptr),
-    autenticado(false),
-    configurado(false)
+    apiKey(""),
+    projectId(""),
+    authToken(""),
+    userId(""),
+    configurado(false),
+    autenticado(false)
 {
     networkManager = new QNetworkAccessManager(this);
     cargarConfiguracionPorDefecto();
 }
 
-FirebaseConfig::~FirebaseConfig() {
-    // networkManager se destruye automaticamente (es hijo de QObject)
-}
+FirebaseConfig::~FirebaseConfig() {}
 
 FirebaseConfig& FirebaseConfig::getInstance() {
     static FirebaseConfig instance;
@@ -38,140 +37,61 @@ void FirebaseConfig::cargarConfiguracionPorDefecto() {
 
 void FirebaseConfig::cargarDesdeEnv(const QString& rutaEnv) {
     QFile envFile(rutaEnv);
-
     if (!envFile.exists()) {
-        qWarning() << "[WARN] Archivo" << rutaEnv << "no encontrado. Firebase no configurado.";
+        qWarning() << "[WARN] Archivo" << rutaEnv << "no encontrado.";
         return;
     }
-
-    if (!envFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        qWarning() << "[WARN] No se pudo abrir" << rutaEnv << "para Firebase";
-        return;
-    }
+    if (!envFile.open(QIODevice::ReadOnly | QIODevice::Text)) return;
 
     QTextStream in(&envFile);
-    qInfo() << "[INFO] Cargando configuracion de Firebase desde" << rutaEnv;
-
     while (!in.atEnd()) {
         QString linea = in.readLine().trimmed();
-
-        if (linea.isEmpty() || linea.startsWith("#")) {
-            continue;
-        }
-
-        int separador = linea.indexOf('=');
-        if (separador == -1) continue;
-
-        QString clave = linea.left(separador).trimmed();
-        QString valor = linea.mid(separador + 1).trimmed();
-
-        if (valor.startsWith('"') && valor.endsWith('"')) {
-            valor = valor.mid(1, valor.length() - 2);
-        }
-
-        if (clave == "FIREBASE_API_KEY") {
-            apiKey = valor;
-        } else if (clave == "FIREBASE_PROJECT_ID") {
-            projectId = valor;
-        }
+        if (linea.isEmpty() || linea.startsWith("#")) continue;
+        int sep = linea.indexOf('=');
+        if (sep == -1) continue;
+        QString key = linea.left(sep).trimmed();
+        QString val = linea.mid(sep + 1).trimmed();
+        if (val.startsWith('"') && val.endsWith('"')) val = val.mid(1, val.length() - 2);
+        
+        if (key == "FIREBASE_API_KEY") apiKey = val;
+        else if (key == "FIREBASE_PROJECT_ID") projectId = val;
     }
-
     envFile.close();
-
     configurado = !apiKey.isEmpty() && !projectId.isEmpty();
-
-    if (configurado) {
-        qInfo() << "[OK] Firebase configurado correctamente";
-    } else {
-        qWarning() << "[WARN] Firebase no configurado (opcional para modo local)";
-    }
 }
 
 QString FirebaseConfig::construirUrlAuth() const {
-    return QString("https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=%1")
-    .arg(apiKey);
+    return QString("https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=%1").arg(apiKey);
 }
 
-QString FirebaseConfig::construirUrlFirestore(const QString& path) const {
-    return QString("https://firestore.googleapis.com/v1/projects/%1/databases/(default)/documents/%2")
-    .arg(projectId, path);
-}
-
-void FirebaseConfig::autenticarUsuario(const QString& email,
-                                       const QString& password,
-                                       std::function<void(bool, const QString&)> callback) {
-    if (!configurado) {
-        qWarning() << "[WARN] Firebase no configurado. Saltando autenticacion en la nube.";
-        callback(false, "Firebase no configurado");
-        return;
+QString FirebaseConfig::construirUrlFirestore(const QString& path, const QString& queryParams) const {
+    QString url = QString("https://firestore.googleapis.com/v1/projects/%1/databases/(default)/documents/%2")
+                  .arg(projectId, path);
+    if (!queryParams.isEmpty()) {
+        url += "?" + queryParams;
     }
-
-    QJsonObject requestData;
-    requestData["email"] = email;
-    requestData["password"] = password;
-    requestData["returnSecureToken"] = true;
-
-    QUrl url(construirUrlAuth());
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-
-    QJsonDocument doc(requestData);
-    QByteArray data = doc.toJson();
-
-    QNetworkReply* reply = networkManager->post(request, data);
-
-    connect(reply, &QNetworkReply::finished, this, [this, reply, callback]() {
-        if (reply->error() == QNetworkReply::NoError) {
-            QByteArray responseData = reply->readAll();
-            QJsonDocument doc = QJsonDocument::fromJson(responseData);
-            QJsonObject obj = doc.object();
-
-            if (obj.contains("idToken")) {
-                authToken = obj["idToken"].toString();
-                userId = obj["localId"].toString();
-                autenticado = true;
-
-                qInfo() << "[OK] Autenticacion exitosa con Firebase";
-                callback(true, "Autenticacion exitosa");
-            } else {
-                callback(false, "Respuesta invalida de Firebase");
-            }
-        } else {
-            QString errorMsg = reply->errorString();
-            qWarning() << "[ERROR] Error de autenticacion Firebase:" << errorMsg;
-            callback(false, errorMsg);
-        }
-
-        reply->deleteLater();
-    });
+    return url;
 }
 
-void FirebaseConfig::guardarDocumento(const QString& coleccion,
-                                      const QString& documento,
-                                      const QJsonObject& datos,
-                                      std::function<void(bool, const QString&)> callback) {
-    if (!configurado || !autenticado) {
-        callback(false, "Firebase no configurado o no autenticado");
-        return;
-    }
+void FirebaseConfig::autenticarUsuario(const QString& email, const QString& password, std::function<void(bool, const QString&)> callback) {
+    if (!configurado) { callback(false, "No configurado"); return; }
+    
+    QJsonObject json;
+    json["email"] = email;
+    json["password"] = password;
+    json["returnSecureToken"] = true;
 
-    QString urlStr = construirUrlFirestore(coleccion + "/" + documento);
-    QUrl url(urlStr);
-
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    request.setRawHeader("Authorization", ("Bearer " + authToken).toUtf8());
-
-    QJsonObject firestoreDoc = convertirAFormatoFirestore(datos);
-
-    QJsonDocument doc(firestoreDoc);
-    QByteArray data = doc.toJson();
-
-    QNetworkReply* reply = networkManager->put(request, data);
-
-    connect(reply, &QNetworkReply::finished, this, [reply, callback]() {
-        if (reply->error() == QNetworkReply::NoError) {
-            callback(true, "Documento guardado en Firebase");
+    QNetworkRequest req((QUrl(construirUrlAuth())));
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    
+    QNetworkReply* reply = networkManager->post(req, QJsonDocument(json).toJson());
+    connect(reply, &QNetworkReply::finished, this, [this, reply, callback](){
+        if(reply->error() == QNetworkReply::NoError){
+            auto obj = QJsonDocument::fromJson(reply->readAll()).object();
+            authToken = obj["idToken"].toString();
+            userId = obj["localId"].toString();
+            autenticado = true;
+            callback(true, "Login OK");
         } else {
             callback(false, reply->errorString());
         }
@@ -179,38 +99,122 @@ void FirebaseConfig::guardarDocumento(const QString& coleccion,
     });
 }
 
-QJsonObject FirebaseConfig::convertirAFormatoFirestore(const QJsonObject& datos) {
-    QJsonObject firestoreDoc;
-    QJsonObject fields;
+void FirebaseConfig::guardarDocumento(const QString& coleccion, const QString& docId, const QJsonObject& data, FirebaseCallback callback) {
+    if (!autenticado) { callback(false, QJsonValue(), "No autenticado"); return; }
 
-    QJsonObject::const_iterator it;
-    for (it = datos.constBegin(); it != datos.constEnd(); ++it) {
-        QJsonObject field;
-        QJsonValue value = it.value();
+    QString urlStr = construirUrlFirestore(coleccion + "/" + docId);
+    QNetworkRequest request((QUrl(urlStr)));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    request.setRawHeader("Authorization", ("Bearer " + authToken).toUtf8());
 
-        if (value.isString()) {
-            field["stringValue"] = value.toString();
-        } else if (value.isDouble()) {
-            field["integerValue"] = QString::number(value.toInt());
-        } else if (value.isBool()) {
-            field["booleanValue"] = value.toBool();
+    QJsonObject body = convertirAFormatoFirestore(data);
+    QNetworkReply* reply = networkManager->put(request, QJsonDocument(body).toJson());
+
+    connect(reply, &QNetworkReply::finished, this, [reply, callback]() {
+        if (reply->error() == QNetworkReply::NoError) {
+            callback(true, QJsonObject(), "Guardado OK");
+        } else {
+            callback(false, QJsonValue(), reply->errorString());
         }
+        reply->deleteLater();
+    });
+}
 
+void FirebaseConfig::leerDocumento(const QString& coleccion, const QString& docId, FirebaseCallback callback) {
+    if (!autenticado) { callback(false, QJsonValue(), "No autenticado"); return; }
+
+    QString urlStr = construirUrlFirestore(coleccion + "/" + docId);
+    QNetworkRequest request((QUrl(urlStr)));
+    request.setRawHeader("Authorization", ("Bearer " + authToken).toUtf8());
+
+    QNetworkReply* reply = networkManager->get(request);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, callback]() {
+        if (reply->error() == QNetworkReply::NoError) {
+            QJsonObject doc = QJsonDocument::fromJson(reply->readAll()).object();
+            callback(true, convertirDesdeFormatoFirestore(doc), "Leido OK");
+        } else {
+            callback(false, QJsonValue(), reply->errorString());
+        }
+        reply->deleteLater();
+    });
+}
+
+void FirebaseConfig::listarColeccion(const QString& coleccion, FirebaseCallback callback) {
+    if (!autenticado) { callback(false, QJsonValue(), "No autenticado"); return; }
+
+    QString urlStr = construirUrlFirestore(coleccion);
+    QNetworkRequest request((QUrl(urlStr)));
+    request.setRawHeader("Authorization", ("Bearer " + authToken).toUtf8());
+
+    QNetworkReply* reply = networkManager->get(request);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, callback]() {
+        if (reply->error() == QNetworkReply::NoError) {
+            QJsonObject doc = QJsonDocument::fromJson(reply->readAll()).object();
+            QJsonArray raw = doc["documents"].toArray();
+            QJsonArray clean;
+            for(const auto& val : raw) {
+                 clean.append(convertirDesdeFormatoFirestore(val.toObject()));
+            }
+            callback(true, clean, "Listado OK");
+        } else {
+            callback(false, QJsonValue(), reply->errorString());
+        }
+        reply->deleteLater();
+    });
+}
+
+void FirebaseConfig::eliminarDocumento(const QString& coleccion, const QString& docId, FirebaseCallback callback) {
+    if (!autenticado) { callback(false, QJsonValue(), "No autenticado"); return; }
+    
+    QString urlStr = construirUrlFirestore(coleccion + "/" + docId);
+    QNetworkRequest request((QUrl(urlStr)));
+    request.setRawHeader("Authorization", ("Bearer " + authToken).toUtf8());
+    
+    QNetworkReply* reply = networkManager->deleteResource(request);
+    connect(reply, &QNetworkReply::finished, this, [reply, callback](){
+        if(reply->error() == QNetworkReply::NoError) callback(true, QJsonObject(), "Eliminado OK");
+        else callback(false, QJsonValue(), reply->errorString());
+        reply->deleteLater();
+    });
+}
+
+void FirebaseConfig::actualizarDocumento(const QString& coleccion, const QString& docId, const QJsonObject& data, FirebaseCallback callback) {
+    guardarDocumento(coleccion, docId, data, callback); 
+}
+
+QJsonObject FirebaseConfig::convertirAFormatoFirestore(const QJsonObject& datos) {
+    QJsonObject firestoreDoc, fields;
+    for (auto it = datos.begin(); it != datos.end(); ++it) {
+        QJsonObject field;
+        if (it.value().isString()) field["stringValue"] = it.value().toString();
+        else if (it.value().isDouble()) field["integerValue"] = QString::number(it.value().toInt()); // Simplificado a int
+        else if (it.value().isBool()) field["booleanValue"] = it.value().toBool();
         fields[it.key()] = field;
     }
-
     firestoreDoc["fields"] = fields;
     return firestoreDoc;
 }
 
-QString FirebaseConfig::getToken() const {
-    return authToken;
+QJsonObject FirebaseConfig::convertirDesdeFormatoFirestore(const QJsonObject& firestoreDoc) {
+    QJsonObject res;
+    if(!firestoreDoc.contains("fields")) return res;
+    QJsonObject fields = firestoreDoc["fields"].toObject();
+    for(auto it = fields.begin(); it != fields.end(); ++it) {
+        res[it.key()] = convertirValorDesdeFirestore(it.value().toObject());
+    }
+    return res;
 }
 
-bool FirebaseConfig::estaAutenticado() const {
-    return autenticado;
+QJsonValue FirebaseConfig::convertirValorDesdeFirestore(const QJsonObject& field) {
+    if(field.contains("stringValue")) return field["stringValue"].toString();
+    if(field.contains("integerValue")) return field["integerValue"].toString().toInt();
+    if(field.contains("booleanValue")) return field["booleanValue"].toBool();
+    return QJsonValue();
 }
 
-bool FirebaseConfig::estaConfigurado() const {
-    return configurado;
-}
+bool FirebaseConfig::estaConfigurado() const { return configurado; }
+bool FirebaseConfig::estaAutenticado() const { return autenticado; }
+QString FirebaseConfig::getToken() const { return authToken; }
+QString FirebaseConfig::getUserId() const { return userId; }

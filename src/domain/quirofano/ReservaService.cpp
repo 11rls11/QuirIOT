@@ -5,9 +5,8 @@
 #include <QDebug>
 #include <algorithm>
 
-ReservaService::ReservaService(QSqlDatabase& db, QuirofanoRepository& quirofanoRepo,
-                               UsuarioRepository& usuarioRepo)
-    : database(db), quirofanoRepository(quirofanoRepo), usuarioRepository(usuarioRepo) {}
+ReservaService::ReservaService(QSqlDatabase& db, QuirofanoRepository& qRepo, UsuarioRepository& uRepo)
+    : database(db), quirofanoRepository(qRepo), usuarioRepository(uRepo) {}
 
 Reserva* ReservaService::crearReserva(const DatosReserva& datos) {
     QString mensajeError;
@@ -21,7 +20,7 @@ Reserva* ReservaService::crearReserva(const DatosReserva& datos) {
         datos.idQuirofano,
         datos.fechaInicio,
         datos.fechaFin
-        );
+    );
     reserva->setMotivoCirugia(datos.motivoCirugia);
 
     if (!guardarReserva(*reserva)) {
@@ -30,6 +29,14 @@ Reserva* ReservaService::crearReserva(const DatosReserva& datos) {
     }
 
     quirofanoRepository.actualizarEstado(datos.idQuirofano, EstadoQuirofano::OCUPADO);
+
+    firestoreRepo.guardar(*reserva, [](bool exito, QString msg){
+        if(exito) {
+            qInfo() << "[NUBE] Respaldo de reserva guardado en Firestore.";
+        } else {
+            qWarning() << "[NUBE] Error al respaldar reserva:" << msg;
+        }
+    });
 
     qInfo() << "[OK] Reserva creada con ID:" << reserva->getId();
     return reserva;
@@ -54,7 +61,7 @@ bool ReservaService::cancelarReserva(int idReserva) {
         int idQuirofano = queryQuirofano.value(0).toInt();
         quirofanoRepository.actualizarEstado(idQuirofano, EstadoQuirofano::DISPONIBLE);
     }
-
+        
     qInfo() << "[OK] Reserva" << idReserva << "cancelada";
     return true;
 }
@@ -83,7 +90,7 @@ QVector<Reserva*> ReservaService::listarReservasDelDia(const QDate& fecha) {
         "SELECT * FROM reservan "
         "WHERE fecha_inicio BETWEEN ? AND ? AND estado_reserva != 'CANCELADA' "
         "ORDER BY fecha_inicio"
-        );
+    );
     query.addBindValue(inicioDia);
     query.addBindValue(finDia);
 
@@ -103,7 +110,7 @@ QVector<Reserva*> ReservaService::listarReservasPorQuirofano(int idQuirofano) {
     query.prepare(
         "SELECT * FROM reservan WHERE id_quirofano = ? "
         "AND estado_reserva != 'CANCELADA' ORDER BY fecha_inicio"
-        );
+    );
     query.addBindValue(idQuirofano);
 
     if (query.exec()) {
@@ -119,8 +126,8 @@ QVector<HorarioDisponible> ReservaService::obtenerHorariosDisponibles(int idQuir
                                                                       const QDate& fecha) {
     QVector<HorarioDisponible> horariosDisponibles;
 
-    QDateTime inicioJornada(fecha, QTime(7, 0, 0));
-    QDateTime finJornada(fecha, QTime(19, 0, 0));
+    QDateTime inicioJornada(fecha, QTime(0, 0, 0));
+    QDateTime finJornada(fecha, QTime(23, 59, 59));
 
     auto reservas = listarReservasPorQuirofano(idQuirofano);
 
@@ -197,10 +204,6 @@ bool ReservaService::validarReserva(const DatosReserva& datos, QString& mensajeE
         mensajeError = "La duracion minima de una reserva es 30 minutos";
         return false;
     }
-    if (duracionMinutos > 480) {
-        mensajeError = "La duracion maxima de una reserva es 8 horas";
-        return false;
-    }
 
     if (existeConflicto(datos.idQuirofano, datos.fechaInicio, datos.fechaFin)) {
         mensajeError = "El horario solicitado tiene conflictos con otras reservas";
@@ -221,15 +224,31 @@ HorarioSugerido ReservaService::validarYSugerirHorario(
     const QDateTime& fin)
 {
     QVector<Reserva*> reservas = listarReservasPorQuirofano(idQuirofano);
-    
+
+    // === DEBUG LOGS ===
+    qDebug() << "========================================";
+    qDebug() << "DEBUG: Validando horario para:";
+    qDebug() << "   Inicio:" << inicio.toString();
+    qDebug() << "   Fin:   " << fin.toString();
+    qDebug() << "DEBUG: Se encontraron" << reservas.size() << "reservas en BD.";
+
+    for(auto r : reservas) {
+        qDebug() << "   -> ID:" << r->getId()
+        << " | Inicio:" << r->getFechaInicio().toString("HH:mm")
+        << " | Fin:" << r->getFechaFin().toString("HH:mm");
+    }
+    qDebug() << "========================================";
+    // ================================
+
     HorarioSugerido resultado = sugerenciaAgenda.validarYSugerir(
         idQuirofano, inicio, fin, reservas
-    );
-    
+        );
+
     qDeleteAll(reservas);
-    
+
     return resultado;
 }
+
 
 HorarioSugerido ReservaService::encontrarProximoHorarioDisponible(
     int idQuirofano,
@@ -274,11 +293,17 @@ QVector<Reserva*> ReservaService::listarReservasPorQuirofanoYFecha(int idQuirofa
 }
 
 Reserva* ReservaService::mapearReserva(const QSqlQuery& query) {
+    QDateTime inicio = query.value("fecha_inicio").toDateTime();
+    QDateTime fin = query.value("fecha_fin").toDateTime();
+
+    inicio.setTimeSpec(Qt::LocalTime);
+    fin.setTimeSpec(Qt::LocalTime);
+
     Reserva* reserva = new Reserva(
         query.value("id_usuario").toInt(),
         query.value("id_quirofano").toInt(),
-        query.value("fecha_inicio").toDateTime(),
-        query.value("fecha_fin").toDateTime()
+        inicio,
+        fin
         );
 
     reserva->setId(query.value("id_reserva").toInt());
@@ -297,8 +322,10 @@ bool ReservaService::guardarReserva(Reserva& reserva) {
         );
     query.addBindValue(reserva.getIdUsuario());
     query.addBindValue(reserva.getIdQuirofano());
-    query.addBindValue(reserva.getFechaInicio());
-    query.addBindValue(reserva.getFechaFin());
+
+    query.addBindValue(reserva.getFechaInicio().toString("yyyy-MM-dd HH:mm:ss"));
+    query.addBindValue(reserva.getFechaFin().toString("yyyy-MM-dd HH:mm:ss"));
+
     query.addBindValue(reserva.getMotivoCirugia());
     query.addBindValue(Reserva::estadoToString(reserva.getEstado()));
 
@@ -310,3 +337,4 @@ bool ReservaService::guardarReserva(Reserva& reserva) {
     reserva.setId(query.lastInsertId().toInt());
     return true;
 }
+

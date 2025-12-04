@@ -3,8 +3,9 @@
 
 #include "Reserva.h"
 #include "QuirofanoRepository.h"
-#include "../usuario/UsuarioRepository.h"
+#include "src/domain/usuario/UsuarioRepository.h"
 #include "domain/quirofano/SugerenciaAgenda.h"
+#include "ReservaFirestoreRepository.h"
 #include <QSqlDatabase>
 #include <QVector>
 
@@ -56,9 +57,10 @@ private:
     QuirofanoRepository& quirofanoRepository;
     UsuarioRepository& usuarioRepository;
     SugerenciaAgenda sugerenciaAgenda;
+    ReservaFirestoreRepository firestoreRepo;
 
     Reserva* mapearReserva(const class QSqlQuery& query);
     bool guardarReserva(Reserva& reserva);
 };
 
-#endif
+#endif // RESERVASERVICE_H
